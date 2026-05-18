@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    一鍵 VCF lab bring-up (9.0 或 9.1) — 從 inventory + secrets 一路打到 SDDC 起來.
+    一鍵 VCF lab bring-up (9.0 / 9.1 / 5.2.1) — 從 inventory + secrets 一路打到 SDDC 起來.
 
 .DESCRIPTION
     串起 layer2 的三步:
@@ -12,11 +12,11 @@
     Version 從 -Version 參數讀, 沒給就讀 inventory 的 vcf.version, 還是沒有就預設 9.1.
 
 .PARAMETER VcfInstaller
-    VCF Installer URL, 例如 https://192.168.114.5
+    VCF Installer URL (9.x) 或 Cloud Builder URL (5.2.1), 例如 https://192.168.114.5
 
 .PARAMETER Version
-    VCF 版本 ('9.0' 或 '9.1'). 不指定就讀 inventory/lab.yaml 的 vcf.version,
-    再 fallback 到 9.1. 9.0 與 9.1 使用不同的 JSON template + 不同的 lab workaround 形態.
+    VCF 版本 ('9.0' / '9.1' / '5.2.1'). 不指定就讀 inventory/lab.yaml 的 vcf.version,
+    再 fallback 到 9.1. 三版本用不同 template + 不同 lab workaround + 不同 auth (5.2.1 走 Basic Auth).
 
 .PARAMETER NonInteractive
     跳過 validation 後的人類確認, 直接 bring-up. CI/CD 用.
@@ -30,13 +30,17 @@
 
 .EXAMPLE
     # VCF 9.0
-    pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.5 -Version 9.0
+    pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.34 -Version 9.0
+
+.EXAMPLE
+    # VCF 5.2.1 Cloud Builder
+    pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.54 -Version 5.2.1
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)] [string] $VcfInstaller,
-    [ValidateSet('9.0','9.1','')] [string] $Version = '',
+    [ValidateSet('9.0','9.1','5.2.1','')] [string] $Version = '',
     [switch] $NonInteractive,
     [switch] $SkipLabMode
 )
@@ -54,12 +58,15 @@ if ($Version)        { $genArgs.Version = $Version }
 if (-not $SkipLabMode) { $genArgs.LabMode = $true }
 & (Join-Path $here 'Generate-BringupSpec.ps1') @genArgs
 
+$submitCommon = @{
+    VcfInstaller = $VcfInstaller
+    SpecFile     = (Join-Path $here 'generated-bringup.json')
+}
+if ($Version) { $submitCommon.Version = $Version }
+
 Write-Host ""
 Write-Host "=== Step 2/3: Validation only ==="
-& (Join-Path $here 'Submit-Bringup.ps1') `
-    -VcfInstaller $VcfInstaller `
-    -SpecFile (Join-Path $here 'generated-bringup.json') `
-    -ValidateOnly
+& (Join-Path $here 'Submit-Bringup.ps1') @submitCommon -ValidateOnly
 
 if (-not $NonInteractive) {
     Write-Host ""
@@ -73,9 +80,7 @@ if (-not $NonInteractive) {
 
 Write-Host ""
 Write-Host "=== Step 3/3: Bring-up ==="
-& (Join-Path $here 'Submit-Bringup.ps1') `
-    -VcfInstaller $VcfInstaller `
-    -SpecFile (Join-Path $here 'generated-bringup.json')
+& (Join-Path $here 'Submit-Bringup.ps1') @submitCommon
 
 Write-Host ""
 Write-Host "完成. 接下來建議跑 layer3-postbringup/ 的 commission / domain 腳本."

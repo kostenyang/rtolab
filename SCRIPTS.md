@@ -42,26 +42,29 @@
 
 ---
 
-## Layer 2 — VCF 9.0 / 9.1 Auto Bring-up
+## Layer 2 — VCF 9.0 / 9.1 / 5.2.1 Auto Bring-up
 
-位置: `layer2-bringup/`。把 VCF Installer 接到 4 台 nested ESXi,自動 bring up Management Domain。同一份 inventory 同時支援 9.0 與 9.1,靠 `-Version` 切換。
+位置: `layer2-bringup/`。把 VCF Installer (9.x) 或 Cloud Builder (5.2.1) 接到 4 台 nested ESXi,自動 bring up Management Domain。同一份 inventory 同時支援三版本 (IP / FQDN 三組互不重疊, 見 [inventory/ip-plan.md](./inventory/ip-plan.md)),靠 `-Version` 切換 template + auth + workaround。
 
 | 檔案 | 功能 | 跑法 |
 |---|---|---|
-| `vcf90-bringup.template.json` | **VCF 9.0** template:含 `vcfOperationsSpec` / `vcfOperationsFleetManagementSpec` / `vcfOperationsCollectorSpec`,`datastoreSpec.vsanSpec`,`networkSpec.includeIpAddressRanges` | 不直接編輯 |
-| `vcf91-bringup.template.json` | **VCF 9.1** template:`skipChecks` 陣列,頂層 `vsanSpec`,精簡 NSX/Operations | 不直接編輯 |
-| `Generate-BringupSpec.ps1` | 讀 inventory + sops 自解密 secrets, 渲染對應版本 template -> `generated-bringup.json`. 支援 `-Version 9.0\|9.1`、`-LabMode` | `pwsh Generate-BringupSpec.ps1 -Version 9.0 -LabMode` |
-| `Submit-Bringup.ps1` | 推 JSON 給 VCF Installer API. 先 validation 再 bring-up, 每 60 秒 poll. 9.0 / 9.1 共用 (`/v1/sddcs`) | `pwsh Submit-Bringup.ps1 -VcfInstaller https://<x> -SpecFile <json>` |
-| `New-VcfLab.ps1` | 一鍵 wrapper: 產 spec -> validate -> 你打 YES -> bring-up + poll. 接 `-Version` 透傳給 generator | `pwsh New-VcfLab.ps1 -VcfInstaller https://<x> -Version 9.0` |
+| `vcf90-bringup.template.json`  | **VCF 9.0** template:含 `vcfOperationsSpec` / `vcfOperationsFleetManagementSpec` / `vcfOperationsCollectorSpec`,`datastoreSpec.vsanSpec`,`networkSpec.includeIpAddressRanges` | 不直接編輯 |
+| `vcf91-bringup.template.json`  | **VCF 9.1** template:`skipChecks` 陣列,頂層 `vsanSpec`,精簡 NSX/Operations | 不直接編輯 |
+| `vcf521-bringup.template.json` | **VCF 5.2.1** Cloud Builder template:`pscSpecs`、`overLayTransportZone`/`vlanTransportZone`、`vsanDedup`、`excludedComponents=[AVN,EBGP]`、host `sshThumbprint`+`sslThumbprint` | 不直接編輯 |
+| `Generate-BringupSpec.ps1` | 讀 inventory + sops 自解密 secrets, 把 `vcf.versions[V]` / `hosts_by_version[V]` 投影成扁平結構, 渲染對應版本 template -> `generated-bringup.json`. 支援 `-Version 9.0\|9.1\|5.2.1`、`-LabMode` | `pwsh Generate-BringupSpec.ps1 -Version 5.2.1 -LabMode` |
+| `Submit-Bringup.ps1` | 推 JSON 給 VCF Installer / Cloud Builder API. 先 validation 再 bring-up, 每 60 秒 poll. 9.x 走 `/v1/tokens` JWT (`admin@local`),5.2.1 走 Basic Auth (`admin`) | `pwsh Submit-Bringup.ps1 -VcfInstaller https://<x> -SpecFile <json> -Version 5.2.1` |
+| `New-VcfLab.ps1` | 一鍵 wrapper: 產 spec -> validate -> 你打 YES -> bring-up + poll. 接 `-Version` 透傳給 generator + submitter | `pwsh New-VcfLab.ps1 -VcfInstaller https://<x> -Version 5.2.1` |
 
 > Layer 2 腳本會自己呼叫 sops 解密 secrets,**不需要** 先 `source load-secrets.sh`。
+> Submit-Bringup 若沒給 `-Version` 會從 spec 內容推斷 (`pscSpecs` 存在 -> 5.2.1, `vcfInstanceName` -> 9.0, `sddcId` only -> 9.1)。
 
 ### -LabMode 行為依版本不同
 
-| Version | -LabMode 做的事 |
+| Version  | -LabMode 做的事 |
 |---|---|
-| **9.1** | 在 spec 加 `skipChecks`: `NESTED_CPU_CHECK` / `NIC_COUNT_CHECK` / `MIN_HOST_CHECK` / `VSAN_ESA_HCL_CHECK` / `ESX_THUMBPRINT_CHECK` |
-| **9.0** | 設 `skipEsxThumbprintValidation = true`、`skipGatewayPingValidation = true`、強制 `datastoreSpec.vsanSpec.esaConfig.enabled = false`、拔掉 `hostSpecs[].sslThumbprint` 的 placeholder |
+| **9.1**   | 在 spec 加 `skipChecks`: `NESTED_CPU_CHECK` / `NIC_COUNT_CHECK` / `MIN_HOST_CHECK` / `VSAN_ESA_HCL_CHECK` / `ESX_THUMBPRINT_CHECK` |
+| **9.0**   | 設 `skipEsxThumbprintValidation = true`、`skipGatewayPingValidation = true`、強制 `datastoreSpec.vsanSpec.esaConfig.enabled = false`、拔掉 `hostSpecs[].sslThumbprint` placeholder |
+| **5.2.1** | 設 `skipEsxThumbprintValidation = true`、`deployWithoutLicenseKeys = true`、`ceipEnabled = false`;template 已預設 `excludedComponents = ["AVN","EBGP"]` |
 
 (正式環境加 `-SkipLabMode` 不要跳)
 
@@ -108,8 +111,9 @@
 
 | 檔案 | 用途 |
 |---|---|
-| `lab.yaml` | lab 全部拓樸 (明文, 非敏感): outer vCenter / AD / 4 台 nested ESXi / network VLAN/CIDR / artifact 路徑 |
-| `secrets/lab.example.yaml` | 密碼欄位範本. `cp lab.example.yaml lab.yaml` -> 填值 -> `sops -e -i lab.yaml` 加密. **9.0 額外需** `operations.{root_pw,admin_pw}` (VCF Operations 三件套用) |
+| `lab.yaml` | lab 全部拓樸 (明文, 非敏感): outer vCenter / AD / network underlay (VLAN/CIDR/portgroup, 三版本共用) / `vcf.versions.{9.0,9.1,5.2.1}` 每版本 management domain + IP / `hosts_by_version.{...}` 每版本 4 台 ESXi IP / `artifacts.{vcf_90,vcf_91,vcf_521}` 每版本 OVA / depot 路徑. Active version 由 `vcf.version` 控制 |
+| `ip-plan.md` | 三版本 IP / FQDN 配置表 + DNS 預期記錄 + 切版本 SOP |
+| `secrets/lab.example.yaml` | 密碼欄位範本. `cp lab.example.yaml lab.yaml` -> 填值 -> `sops -e -i lab.yaml` 加密. **9.0 額外需** `operations.{root_pw,admin_pw}` (VCF Operations 三件套用), **5.2.1 額外需** `cloud_builder.admin_pw` (Cloud Builder basic auth) |
 | `secrets/lab.yaml` | 實際密碼檔 (sops + age 加密後才 commit). 解密後的暫存檔被 `.gitignore` 擋掉 |
 
 ---
@@ -120,11 +124,11 @@
 0. bootstrap automation host: bash scripts/bootstrap-automation-host.sh
 1. push 到 GitHub
 2. 編 inventory/lab.yaml (確認 vcf.version: "9.0") + sops 加密 inventory/secrets/lab.yaml
-   (9.0 多填 operations.{root_pw,admin_pw})
+   (9.0 多填 operations.{root_pw,admin_pw}, 5.2.1 多填 cloud_builder.admin_pw)
 3. Layer 1 — 對 4 台 nested ESXi 9.0 (在執行機器上, 要有 PowerCLI 13):
    pwsh .\layer1-nested\Prepare-NestedESXi.ps1           # vSAN/LSOM lab workaround
 4. Layer 2 — VCF 9.0 bring-up:
-   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://<installer> -Version 9.0
+   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://192.168.114.34 -Version 9.0
    - 先 validation, 看哪些欄位不對
    - 過了打 YES 真的 bring-up (約 1-2 小時, 含 Operations 三件套部署)
    - 慢速 lab 記得先做 layer2-bringup/timeout-tuning.md 的 timeout 調整
@@ -139,7 +143,21 @@
    pwsh .\layer4-day2\Run-BatchUpgrade.ps1               # 4 台 9.0 → 9.1
    pwsh .\layer1-nested\Prepare-NestedESXi.ps1           # vSAN/LSOM lab workaround
 4. Layer 2 — VCF 9.1 bring-up:
-   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://<installer> -Version 9.1
+   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://192.168.114.5 -Version 9.1
+```
+
+## 典型工作流 C — VCF 5.2.1 (Cloud Builder)
+
+```
+0-1. 同上
+2. inventory/lab.yaml 設 vcf.version: "5.2.1"; secrets 多填 cloud_builder.admin_pw
+3. 在外層 vCenter 部署 4 台 nested ESXi 8.0 + 1 台 Cloud Builder appliance (5.2.1)
+   - Cloud Builder OVA: artifacts.vcf_521.cloud_builder_ova
+   - Cloud Builder IP: vcf.versions."5.2.1".management_domain.cloud_builder.ip (192.168.114.54)
+4. Layer 1 — 套 vSAN/LSOM workaround:
+   pwsh .\layer1-nested\Prepare-NestedESXi.ps1
+5. Layer 2 — VCF 5.2.1 bring-up (走 Cloud Builder):
+   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://192.168.114.54 -Version 5.2.1
 ```
 
 ---

@@ -1,13 +1,16 @@
 # =============================================================================
-#  VCF 9 Lab inventory  —  明文, 非敏感資料
+#  VCF Lab inventory  —  明文, 非敏感資料
 #  密碼 / token 放 inventory/secrets/lab.yaml (sops 加密)
+#
+#  同一份 inventory 支援 VCF 9.0 / 9.1 / 5.2.1 三個版本並存的 IP 規劃.
+#  Active version 由 vcf.version 或 cmdline -Version 決定. IP 配置見 ./ip-plan.md.
 # =============================================================================
 
 lab:
   name: vcf-m02
   domain: rto.lab
 
-# -------- 物理 / 基礎服務 (lab 外圍) ---------------------------------------
+# -------- 物理 / 基礎服務 (lab 外圍, 三版本共用) ---------------------------
 infra:
   # 你的 lab vCenter (跑 nested 的那個外層 vCenter)
   outer_vcenter:
@@ -15,7 +18,7 @@ infra:
     ip:   10.0.0.101
     user: administrator@vsphere.local
 
-  # AD + DNS + jumpbox
+  # AD + DNS + jumpbox (三版本共用 DNS, 都解 rto.lab)
   jumpbox:
     fqdn: dc01.rto.lab
     ip:   10.0.0.200
@@ -26,90 +29,124 @@ infra:
     ip:   10.0.0.65
     user: labops
 
-# -------- VCF Management Domain --------------------------------------------
-vcf:
-  # 9.0 or 9.1. Layer 2 的 New-VcfLab / Generate-BringupSpec 依此挑 template;
-  # cmdline 的 -Version 會覆蓋這個值. 同一份 inventory 可同時支援兩個版本.
-  version: "9.0"
-
-  management_domain:
-    name: vcf-m02
-    sddc_manager:
-      fqdn: sddc-mgr.rto.lab
-      # ip 由 VCF Installer 賦予
-    inner_vcenter:
-      fqdn: vc-mgmt.rto.lab
-    nsx_manager:
-      fqdn:      nsx-mgmt.rto.lab          # VIP (cluster FQDN)
-      vip:       192.168.114.13
-      node_fqdn: nsx-mgmt-01.rto.lab       # 第一個 manager node (9.0 spec 需分開)
-      node_ip:   192.168.114.12
-
-    # NSX TEP / Overlay pool — 9.0 需 explicit ipAddressPoolSpec
-    tep_pool:
-      cidr:        192.168.117.0/24
-      gateway:     192.168.117.1
-      range_start: 192.168.117.32
-      range_end:   192.168.117.95
-
-    # VCF Operations 三件套 — 9.0 內建在 bring-up; 9.1 拆到 day-2 (這節 9.1 可留空)
-    operations:
-      fqdn:           vcf-ops.rto.lab
-      fleet_fqdn:     vcf-fleet.rto.lab
-      collector_fqdn: vcf-coll.rto.lab
-
-# -------- Nested ESXi hosts (4 台 management domain) -----------------------
-# name            = ESXi hostname (不含 -91 後綴)
-# nested_vm_name  = 外層 vCenter (labvc.lab.com) 上看到的 VM 名 (含 -91 後綴)
-hosts:
-  - name: vcf-m02-esx01
-    mgmt_ip: 192.168.114.14
-    fqdn: esx01.rto.lab
-    vmotion_ip: 192.168.115.14
-    vsan_ip:    192.168.116.14
-    role: management
-    nested_vm_name: vcf-m02-esx01-91
-
-  - name: vcf-m02-esx02
-    mgmt_ip: 192.168.114.15
-    fqdn: esx02.rto.lab
-    vmotion_ip: 192.168.115.15
-    vsan_ip:    192.168.116.15
-    role: management
-    nested_vm_name: vcf-m02-esx02-91
-
-  - name: vcf-m02-esx03
-    mgmt_ip: 192.168.114.16
-    fqdn: esx03.rto.lab
-    vmotion_ip: 192.168.115.16
-    vsan_ip:    192.168.116.16
-    role: management
-    nested_vm_name: vcf-m02-esx03-91
-
-  - name: vcf-m02-esx04
-    mgmt_ip: 192.168.114.17
-    fqdn: esx04.rto.lab
-    vmotion_ip: 192.168.115.17
-    vsan_ip:    192.168.116.17
-    role: management
-    nested_vm_name: vcf-m02-esx04-91
-
-# -------- 網路 -------------------------------------------------------------
-# SELAB-Cluster underlay: selab-dswitch dvPortgroup 命名 = pg<VLAN>,subnet = 192.168.<VLAN>.0/24
+# -------- 網路 underlay (VLAN / portgroup / gateway, 三版本共用) -----------
+# SELAB-Cluster underlay: selab-dswitch dvPortgroup 命名 = pg<VLAN>
 # 已佔用 (不可動): pg113 / pg119 / pg120 (Sean 的 lab)
 # 本 lab 分配: pg114 = mgmt, pg115 = vmotion, pg116 = vsan, pg117 = overlay
 network:
-  # range_start / range_end 給 9.0 networkSpec.includeIpAddressRanges 用 (vmotion / vsan)
   mgmt:    { vlan: 114, cidr: 192.168.114.0/24, gateway: 192.168.114.1, portgroup: selab-dswitch-pg114 }
-  vmotion: { vlan: 115, cidr: 192.168.115.0/24, gateway: 192.168.115.1, portgroup: selab-dswitch-pg115, range_start: 192.168.115.14, range_end: 192.168.115.17 }
-  vsan:    { vlan: 116, cidr: 192.168.116.0/24, gateway: 192.168.116.1, portgroup: selab-dswitch-pg116, range_start: 192.168.116.14, range_end: 192.168.116.17 }
+  vmotion: { vlan: 115, cidr: 192.168.115.0/24, gateway: 192.168.115.1, portgroup: selab-dswitch-pg115 }
+  vsan:    { vlan: 116, cidr: 192.168.116.0/24, gateway: 192.168.116.1, portgroup: selab-dswitch-pg116 }
   overlay: { vlan: 117, cidr: 192.168.117.0/24, gateway: 192.168.117.1, portgroup: selab-dswitch-pg117 }
 
-# -------- ISO / depot 檔位置 (放在 jumpbox / 自動化主機) ------------------
+# -------- VCF Management Domain (per-version, 不會 IP 衝突) ----------------
+vcf:
+  # active version — Generate-BringupSpec.ps1 / New-VcfLab.ps1 的 -Version 會覆蓋
+  version: "9.0"
+
+  # 每版本的 management domain 物件 (FQDN + IP)
+  # IP 配置依 inventory/ip-plan.md 的 /28-per-version 切法, 三套互不重疊
+  versions:
+
+    # ---- VCF 9.1 (existing SELAB-Cluster 既有配置) -----------------------
+    "9.1":
+      management_domain:
+        name: vcf-m02
+        sddc_manager:  { fqdn: sddc-mgr.rto.lab, ip: 192.168.114.10 }
+        inner_vcenter: { fqdn: vc-mgmt.rto.lab,  ip: 192.168.114.11 }
+        nsx_manager:
+          fqdn:      nsx-mgmt.rto.lab        # cluster VIP FQDN
+          vip:       192.168.114.13
+          node_fqdn: nsx-mgmt-01.rto.lab     # 第一個 manager node
+          node_ip:   192.168.114.12
+        tep_pool:
+          cidr:        192.168.117.0/24
+          gateway:     192.168.117.1
+          range_start: 192.168.117.32
+          range_end:   192.168.117.95
+        vcf_installer: { fqdn: vcf-inst-91.rto.lab, ip: 192.168.114.5 }
+      vmotion_range: { start: 192.168.115.14, end: 192.168.115.17 }
+      vsan_range:    { start: 192.168.116.14, end: 192.168.116.17 }
+
+    # ---- VCF 9.0 (新增, 含 VCF Operations 三件套) -------------------------
+    "9.0":
+      management_domain:
+        name: vcf-m02
+        sddc_manager:  { fqdn: sddc-mgr.rto.lab, ip: 192.168.114.35 }
+        inner_vcenter: { fqdn: vc-mgmt.rto.lab,  ip: 192.168.114.36 }
+        nsx_manager:
+          fqdn:      nsx-mgmt.rto.lab
+          vip:       192.168.114.38
+          node_fqdn: nsx-mgmt-01.rto.lab
+          node_ip:   192.168.114.37
+        tep_pool:
+          cidr:        192.168.117.0/24
+          gateway:     192.168.117.1
+          range_start: 192.168.117.96
+          range_end:   192.168.117.159
+        vcf_installer: { fqdn: vcf-inst-90.rto.lab, ip: 192.168.114.34 }
+        operations:
+          fqdn:           vcf-ops.rto.lab
+          fleet_fqdn:     vcf-fleet.rto.lab
+          collector_fqdn: vcf-coll.rto.lab
+      vmotion_range: { start: 192.168.115.30, end: 192.168.115.33 }
+      vsan_range:    { start: 192.168.116.30, end: 192.168.116.33 }
+
+    # ---- VCF 5.2.1 (Cloud Builder, 含 PSC remnants 結構) -----------------
+    "5.2.1":
+      management_domain:
+        name: vcf-m02
+        sddc_manager:  { fqdn: sddc-mgr.rto.lab, ip: 192.168.114.55 }
+        inner_vcenter: { fqdn: vc-mgmt.rto.lab,  ip: 192.168.114.56 }
+        nsx_manager:
+          fqdn:      nsx-mgmt.rto.lab
+          vip:       192.168.114.58
+          node_fqdn: nsx-mgmt-01.rto.lab
+          node_ip:   192.168.114.57
+        tep_pool:
+          cidr:        192.168.117.0/24
+          gateway:     192.168.117.1
+          range_start: 192.168.117.160
+          range_end:   192.168.117.223
+        cloud_builder: { fqdn: vcf-cb.rto.lab, ip: 192.168.114.54 }
+      vmotion_range: { start: 192.168.115.50, end: 192.168.115.53 }
+      vsan_range:    { start: 192.168.116.50, end: 192.168.116.53 }
+
+# -------- Nested ESXi hosts (per-version, 同 4 台 VM 但每版本不同 IP) ------
+# name            = ESXi hostname (不含後綴)
+# nested_vm_name  = 外層 vCenter 上的 VM 名 (含 -90 / -91 / -521 後綴, 區別 deploy)
+hosts_by_version:
+
+  "9.1":
+    - { name: vcf-m02-esx01, fqdn: esx01.rto.lab, mgmt_ip: 192.168.114.14, vmotion_ip: 192.168.115.14, vsan_ip: 192.168.116.14, role: management, nested_vm_name: vcf-m02-esx01-91 }
+    - { name: vcf-m02-esx02, fqdn: esx02.rto.lab, mgmt_ip: 192.168.114.15, vmotion_ip: 192.168.115.15, vsan_ip: 192.168.116.15, role: management, nested_vm_name: vcf-m02-esx02-91 }
+    - { name: vcf-m02-esx03, fqdn: esx03.rto.lab, mgmt_ip: 192.168.114.16, vmotion_ip: 192.168.115.16, vsan_ip: 192.168.116.16, role: management, nested_vm_name: vcf-m02-esx03-91 }
+    - { name: vcf-m02-esx04, fqdn: esx04.rto.lab, mgmt_ip: 192.168.114.17, vmotion_ip: 192.168.115.17, vsan_ip: 192.168.116.17, role: management, nested_vm_name: vcf-m02-esx04-91 }
+
+  "9.0":
+    - { name: vcf-m02-esx01, fqdn: esx01.rto.lab, mgmt_ip: 192.168.114.30, vmotion_ip: 192.168.115.30, vsan_ip: 192.168.116.30, role: management, nested_vm_name: vcf-m02-esx01-90 }
+    - { name: vcf-m02-esx02, fqdn: esx02.rto.lab, mgmt_ip: 192.168.114.31, vmotion_ip: 192.168.115.31, vsan_ip: 192.168.116.31, role: management, nested_vm_name: vcf-m02-esx02-90 }
+    - { name: vcf-m02-esx03, fqdn: esx03.rto.lab, mgmt_ip: 192.168.114.32, vmotion_ip: 192.168.115.32, vsan_ip: 192.168.116.32, role: management, nested_vm_name: vcf-m02-esx03-90 }
+    - { name: vcf-m02-esx04, fqdn: esx04.rto.lab, mgmt_ip: 192.168.114.33, vmotion_ip: 192.168.115.33, vsan_ip: 192.168.116.33, role: management, nested_vm_name: vcf-m02-esx04-90 }
+
+  "5.2.1":
+    - { name: vcf-m02-esx01, fqdn: esx01.rto.lab, mgmt_ip: 192.168.114.50, vmotion_ip: 192.168.115.50, vsan_ip: 192.168.116.50, role: management, nested_vm_name: vcf-m02-esx01-521 }
+    - { name: vcf-m02-esx02, fqdn: esx02.rto.lab, mgmt_ip: 192.168.114.51, vmotion_ip: 192.168.115.51, vsan_ip: 192.168.116.51, role: management, nested_vm_name: vcf-m02-esx02-521 }
+    - { name: vcf-m02-esx03, fqdn: esx03.rto.lab, mgmt_ip: 192.168.114.52, vmotion_ip: 192.168.115.52, vsan_ip: 192.168.116.52, role: management, nested_vm_name: vcf-m02-esx03-521 }
+    - { name: vcf-m02-esx04, fqdn: esx04.rto.lab, mgmt_ip: 192.168.114.53, vmotion_ip: 192.168.115.53, vsan_ip: 192.168.116.53, role: management, nested_vm_name: vcf-m02-esx04-521 }
+
+# -------- ISO / depot / OVA 檔位置 (放在 jumpbox / 自動化主機) -------------
 artifacts:
-  # 9.0 OVA (給 layer1 nested ESXi 部署 + layer2 VCF Installer 取得)
-  esxi_90_ova:       E:/9.0/Nested_ESXi9.0.2_Appliance_Template_v1.0.ova
-  vcf_installer_90:  E:/9.0/VCF-SDDC-Manager-Appliance-9.0.1.0.24962180.ova
-  # 9.1 ISO / depot (layer4 升級用)
-  esxi_91_iso:   E:/9.1/VMware-VMvisor-Installer-9.1.0.0.25370933.x86_64.iso
-  esxi_91_depot: E:/9.1/VMware-ESXi-9.1.0.0.25370933-depot.zip
+  # VCF 9.0
+  vcf_90:
+    nested_esxi_ova:   E:/9.0/Nested_ESXi9.0.2_Appliance_Template_v1.0.ova
+    vcf_installer_ova: E:/9.0/VCF-SDDC-Manager-Appliance-9.0.1.0.24962180.ova
+  # VCF 9.1 (升級 path; 也可直接部署)
+  vcf_91:
+    esxi_iso:          E:/9.1/VMware-VMvisor-Installer-9.1.0.0.25370933.x86_64.iso
+    esxi_depot:        E:/9.1/VMware-ESXi-9.1.0.0.25370933-depot.zip
+    vcf_installer_ova: E:/9.1/VCF-Installer-Appliance-9.1.0.0.ova   # 對應 build, 填實際檔名
+  # VCF 5.2.1 (Cloud Builder)
+  vcf_521:
+    nested_esxi_ova:   E:/5.2.1/Nested_ESXi8.0.x_Appliance_Template_v1.0.ova
+    cloud_builder_ova: E:/5.2.1/VMware-Cloud-Builder-5.2.1.0.ova    # 填實際檔名

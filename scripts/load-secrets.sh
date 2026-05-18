@@ -31,6 +31,10 @@ _vcfops_admin="$(echo "$DEC" | yq -r '.operations.admin_pw // ""')"
 export VCFOPS_ROOT_PW="$_vcfops_root"
 export VCFOPS_ADMIN_PW="$_vcfops_admin"
 unset _vcfops_root _vcfops_admin
+# VCF 5.2.1 only — Cloud Builder basic auth
+_cb_admin="$(echo "$DEC" | yq -r '.cloud_builder.admin_pw // ""')"
+export CB_ADMIN_PW="$_cb_admin"
+unset _cb_admin
 export AD_ADMIN_USER="$(echo "$DEC"       | yq -r '.ad.domain_admin_user')"
 export AD_ADMIN_PW="$(echo "$DEC"         | yq -r '.ad.domain_admin_pw')"
 export VM_ROOT_PW="$(echo "$DEC"          | yq -r '.deploy_defaults.vm_root_pw')"

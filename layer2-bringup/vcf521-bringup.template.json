@@ -1,0 +1,226 @@
+{
+  "_comment": "VCF 5.2.1 Management Domain Bring-up Spec for Cloud Builder. 結構對齊 William Lam vcf-automated-lab-deployment.ps1 / Cloud Builder 5.2.1 OpenAPI. 由 Generate-BringupSpec.ps1 -Version 5.2.1 從 inventory/lab.yaml 渲染. POST 到 Cloud Builder /v1/sddcs (Basic Auth, admin user).",
+
+  "skipEsxThumbprintValidation": true,
+  "managementPoolName":   "{{ vcf.management_domain.name }}-np01",
+  "sddcId":               "{{ vcf.management_domain.name }}",
+  "taskName":             "workflowconfig/workflowspec-ems.json",
+  "esxLicense":           "",
+  "ceipEnabled":          false,
+  "deployWithoutLicenseKeys": true,
+
+  "ntpServers": [ "{{ infra.jumpbox.ip }}" ],
+
+  "dnsSpec": {
+    "subdomain":  "{{ lab.domain }}",
+    "domain":     "{{ lab.domain }}",
+    "nameserver": "{{ infra.jumpbox.ip }}"
+  },
+
+  "sddcManagerSpec": {
+    "ipAddress":         "{{ vcf.management_domain.sddc_manager.ip }}",
+    "netmask":           "255.255.255.0",
+    "hostname":          "{{ vcf.management_domain.sddc_manager.fqdn }}",
+    "localUserPassword": "{{ secrets.sddc_manager.admin_pw }}",
+    "vcenterId":         "vcenter-1",
+    "rootUserCredentials":   { "username": "root", "password": "{{ secrets.sddc_manager.root_pw }}" },
+    "secondUserCredentials": { "username": "vcf",  "password": "{{ secrets.sddc_manager.admin_pw }}" },
+    "restApiCredentials":    { "username": "admin","password": "{{ secrets.sddc_manager.admin_pw }}" }
+  },
+
+  "networkSpecs": [
+    {
+      "networkType":            "MANAGEMENT",
+      "subnet":                 "{{ network.mgmt.cidr }}",
+      "gateway":                "{{ network.mgmt.gateway }}",
+      "vlanId":                 "{{ network.mgmt.vlan }}",
+      "mtu":                    "1500",
+      "portGroupKey":           "{{ vcf.management_domain.name }}-vds01-pg-mgmt",
+      "association":            "{{ vcf.management_domain.name }}-dc01",
+      "activeUplinks":          [ "uplink1", "uplink2" ],
+      "standbyUplinks":         []
+    },
+    {
+      "networkType":            "VMOTION",
+      "subnet":                 "{{ network.vmotion.cidr }}",
+      "gateway":                "{{ network.vmotion.gateway }}",
+      "vlanId":                 "{{ network.vmotion.vlan }}",
+      "mtu":                    "9000",
+      "portGroupKey":           "{{ vcf.management_domain.name }}-vds01-pg-vmotion",
+      "association":            "{{ vcf.management_domain.name }}-dc01",
+      "activeUplinks":          [ "uplink1", "uplink2" ],
+      "standbyUplinks":         [],
+      "includeIpAddressRanges": [
+        { "startIpAddress": "{{ network.vmotion.range_start }}", "endIpAddress": "{{ network.vmotion.range_end }}" }
+      ]
+    },
+    {
+      "networkType":            "VSAN",
+      "subnet":                 "{{ network.vsan.cidr }}",
+      "gateway":                "{{ network.vsan.gateway }}",
+      "vlanId":                 "{{ network.vsan.vlan }}",
+      "mtu":                    "9000",
+      "portGroupKey":           "{{ vcf.management_domain.name }}-vds01-pg-vsan",
+      "association":            "{{ vcf.management_domain.name }}-dc01",
+      "activeUplinks":          [ "uplink1", "uplink2" ],
+      "standbyUplinks":         [],
+      "includeIpAddressRanges": [
+        { "startIpAddress": "{{ network.vsan.range_start }}", "endIpAddress": "{{ network.vsan.range_end }}" }
+      ]
+    }
+  ],
+
+  "nsxtSpec": {
+    "nsxtManagerSize": "medium",
+    "nsxtManagers": [
+      { "hostname": "{{ vcf.management_domain.nsx_manager.node_fqdn }}", "ip": "{{ vcf.management_domain.nsx_manager.node_ip }}" }
+    ],
+    "rootNsxtManagerPassword": "{{ secrets.nsx.admin_pw }}",
+    "nsxtAdminPassword":       "{{ secrets.nsx.admin_pw }}",
+    "nsxtAuditPassword":       "{{ secrets.nsx.admin_pw }}",
+    "rootLoginEnabledForNsxtManager": true,
+    "sshEnabledForNsxtManager":       true,
+    "overLayTransportZone": {
+      "zoneName":    "{{ vcf.management_domain.name }}-tz-overlay01",
+      "networkName": "netName-overlay"
+    },
+    "vlanTransportZone": {
+      "zoneName":    "{{ vcf.management_domain.name }}-tz-vlan01",
+      "networkName": "netName-vlan"
+    },
+    "vip":             "{{ vcf.management_domain.nsx_manager.vip }}",
+    "vipFqdn":         "{{ vcf.management_domain.nsx_manager.fqdn }}",
+    "nsxtLicense":     "",
+    "transportVlanId": "{{ network.overlay.vlan }}",
+    "ipAddressPoolSpec": {
+      "name":        "nsx-tep-{{ vcf.management_domain.name }}",
+      "description": "NSX TEP Pool for {{ vcf.management_domain.name }}",
+      "subnets": [
+        {
+          "ipAddressPoolRanges": [
+            { "start": "{{ vcf.management_domain.tep_pool.range_start }}", "end": "{{ vcf.management_domain.tep_pool.range_end }}" }
+          ],
+          "cidr":    "{{ vcf.management_domain.tep_pool.cidr }}",
+          "gateway": "{{ vcf.management_domain.tep_pool.gateway }}"
+        }
+      ]
+    }
+  },
+
+  "vsanSpec": {
+    "vsanName":      "{{ vcf.management_domain.name }}-vsan01",
+    "vsanDedup":     "false",
+    "licenseFile":   "",
+    "datastoreName": "{{ vcf.management_domain.name }}-vsan01"
+  },
+
+  "dvSwitchVersion": "7.0.0",
+  "dvsSpecs": [
+    {
+      "dvsName":      "{{ vcf.management_domain.name }}-vds01",
+      "vcenterId":    "vcenter-1",
+      "vmnics":       [ "vmnic0", "vmnic1" ],
+      "mtu":          9000,
+      "networks":     [ "MANAGEMENT", "VMOTION", "VSAN" ],
+      "isUsedByNsxt": true,
+      "niocSpecs": [
+        { "trafficType": "VSAN",            "value": "HIGH"   },
+        { "trafficType": "VMOTION",         "value": "LOW"    },
+        { "trafficType": "VDP",             "value": "LOW"    },
+        { "trafficType": "VIRTUALMACHINE",  "value": "HIGH"   },
+        { "trafficType": "MANAGEMENT",      "value": "NORMAL" },
+        { "trafficType": "NFS",             "value": "LOW"    },
+        { "trafficType": "HBR",             "value": "LOW"    },
+        { "trafficType": "FAULTTOLERANCE",  "value": "LOW"    },
+        { "trafficType": "ISCSI",           "value": "LOW"    }
+      ]
+    }
+  ],
+
+  "clusterSpec": {
+    "clusterName":         "{{ vcf.management_domain.name }}-cl01",
+    "vcenterName":         "vcenter-1",
+    "clusterEvcMode":      "",
+    "clusterImageEnabled": true,
+    "vmFolders": {
+      "MANAGEMENT": "{{ vcf.management_domain.name }}-fd-mgmt",
+      "NETWORKING": "{{ vcf.management_domain.name }}-fd-nsx",
+      "EDGENODES":  "{{ vcf.management_domain.name }}-fd-edge"
+    }
+  },
+
+  "resourcePoolSpecs": [],
+
+  "pscSpecs": [
+    {
+      "pscId":               "psc-1",
+      "vcenterId":           "vcenter-1",
+      "adminUserSsoPassword":"{{ secrets.inner_vcenter.sso_admin_pw }}",
+      "pscSsoSpec": { "ssoDomain": "vsphere.local" }
+    }
+  ],
+
+  "vcenterSpec": {
+    "vcenterIp":            "{{ vcf.management_domain.inner_vcenter.ip }}",
+    "vcenterHostname":      "{{ vcf.management_domain.inner_vcenter.fqdn }}",
+    "vcenterId":            "vcenter-1",
+    "licenseFile":          "",
+    "vmSize":               "tiny",
+    "storageSize":          "",
+    "rootVcenterPassword":  "{{ secrets.inner_vcenter.sso_admin_pw }}"
+  },
+
+  "hostSpecs": [
+    {
+      "association":      "{{ vcf.management_domain.name }}-dc01",
+      "ipAddressPrivate": { "ipAddress": "{{ hosts[0].mgmt_ip }}", "cidr": "{{ network.mgmt.cidr }}", "gateway": "{{ network.mgmt.gateway }}" },
+      "hostname":         "{{ hosts[0].fqdn }}",
+      "credentials":      { "username": "root", "password": "{{ secrets.esxi.root_pw }}" },
+      "sshThumbprint":    "SHA256:DUMMY",
+      "sslThumbprint":    "SHA25_DUMMY",
+      "vSwitch":          "vSwitch0",
+      "serverId":         "host-1"
+    },
+    {
+      "association":      "{{ vcf.management_domain.name }}-dc01",
+      "ipAddressPrivate": { "ipAddress": "{{ hosts[1].mgmt_ip }}", "cidr": "{{ network.mgmt.cidr }}", "gateway": "{{ network.mgmt.gateway }}" },
+      "hostname":         "{{ hosts[1].fqdn }}",
+      "credentials":      { "username": "root", "password": "{{ secrets.esxi.root_pw }}" },
+      "sshThumbprint":    "SHA256:DUMMY",
+      "sslThumbprint":    "SHA25_DUMMY",
+      "vSwitch":          "vSwitch0",
+      "serverId":         "host-2"
+    },
+    {
+      "association":      "{{ vcf.management_domain.name }}-dc01",
+      "ipAddressPrivate": { "ipAddress": "{{ hosts[2].mgmt_ip }}", "cidr": "{{ network.mgmt.cidr }}", "gateway": "{{ network.mgmt.gateway }}" },
+      "hostname":         "{{ hosts[2].fqdn }}",
+      "credentials":      { "username": "root", "password": "{{ secrets.esxi.root_pw }}" },
+      "sshThumbprint":    "SHA256:DUMMY",
+      "sslThumbprint":    "SHA25_DUMMY",
+      "vSwitch":          "vSwitch0",
+      "serverId":         "host-3"
+    },
+    {
+      "association":      "{{ vcf.management_domain.name }}-dc01",
+      "ipAddressPrivate": { "ipAddress": "{{ hosts[3].mgmt_ip }}", "cidr": "{{ network.mgmt.cidr }}", "gateway": "{{ network.mgmt.gateway }}" },
+      "hostname":         "{{ hosts[3].fqdn }}",
+      "credentials":      { "username": "root", "password": "{{ secrets.esxi.root_pw }}" },
+      "sshThumbprint":    "SHA256:DUMMY",
+      "sslThumbprint":    "SHA25_DUMMY",
+      "vSwitch":          "vSwitch0",
+      "serverId":         "host-4"
+    }
+  ],
+
+  "excludedComponents": [ "AVN", "EBGP" ],
+
+  "_lab_workarounds": {
+    "comment": "由 Generate-BringupSpec.ps1 在 -LabMode 開啟時注入 / 修改; 5.2.1 沒 skipChecks 陣列, 旗標散在各 spec",
+    "notes": [
+      "skipEsxThumbprintValidation 已預設 true (lab); sshThumbprint/sslThumbprint 用 dummy",
+      "deployWithoutLicenseKeys=true 跳過 license 檢查 (lab 用 60-day eval)",
+      "excludedComponents=['AVN','EBGP'] 不部署 AVN / Edge BGP, 簡化 lab"
+    ]
+  }
+}

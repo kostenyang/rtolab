@@ -4,9 +4,11 @@
     輸出可以直接 POST 到 VCF Installer 的 bring-up spec JSON.
 
 .PARAMETER Version
-    VCF 版本. 接受 '9.0' 或 '9.1'. 決定使用 vcf90-bringup.template.json
-    還是 vcf91-bringup.template.json, 也決定 -LabMode 套用的 workaround 形態
-    (9.0 用散在各 spec 內的 skip 旗標; 9.1 用 skipChecks 陣列).
+    VCF 版本. 接受 '9.0' / '9.1' / '5.2.1'. 決定使用哪份 template:
+      9.0   -> vcf90-bringup.template.json   (VCF Installer)
+      9.1   -> vcf91-bringup.template.json   (VCF Installer)
+      5.2.1 -> vcf521-bringup.template.json  (Cloud Builder, basic auth)
+    也決定 -LabMode 套用的 workaround 形態 (見原始碼下方).
     預設讀 inventory 的 vcf.version, 沒有就 fallback 到 '9.1'.
 
 .PARAMETER InventoryFile
@@ -43,7 +45,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('9.0','9.1','')] [string] $Version = '',
+    [ValidateSet('9.0','9.1','5.2.1','')] [string] $Version = '',
     [string] $InventoryFile,
     [string] $TemplateFile,
     [string] $OutputFile = './generated-bringup.json',
@@ -72,15 +74,48 @@ $inv = Get-Content -Raw $InventoryFile | ConvertFrom-Yaml
 if (-not $Version) {
     $Version = if ($inv.vcf.version) { [string]$inv.vcf.version } else { '9.1' }
 }
-if ($Version -notin @('9.0','9.1')) { throw "Version 必須是 9.0 或 9.1, 收到: $Version" }
+if ($Version -notin @('9.0','9.1','5.2.1')) { throw "Version 必須是 9.0 / 9.1 / 5.2.1, 收到: $Version" }
 Write-Host "VCF 版本: $Version"
 
 if (-not $TemplateFile) {
-    $tplName = if ($Version -eq '9.0') { 'vcf90-bringup.template.json' } else { 'vcf91-bringup.template.json' }
+    $tplName = switch ($Version) {
+        '9.0'   { 'vcf90-bringup.template.json' }
+        '9.1'   { 'vcf91-bringup.template.json' }
+        '5.2.1' { 'vcf521-bringup.template.json' }
+    }
     $TemplateFile = Join-Path $here $tplName
 }
 if (-not (Test-Path $TemplateFile)) { throw "template 找不到: $TemplateFile" }
 Write-Host "使用 template: $TemplateFile"
+
+#--- 多版本 inventory: 把 vcf.versions[$Version] 投影成扁平結構 -------------
+# template 期待 {{ vcf.management_domain.xxx }} / {{ hosts[i].xxx }} /
+# {{ network.vmotion.range_start }} 等扁平路徑; 新的 inventory 把這些拆到
+# vcf.versions[version].management_domain / hosts_by_version[version] /
+# vcf.versions[version].vmotion_range etc., 在這裡把它們投影回頂層.
+if ($inv.vcf -and $inv.vcf.versions -and $inv.vcf.versions[$Version]) {
+    $vBlock = $inv.vcf.versions[$Version]
+    if ($vBlock.management_domain) { $inv.vcf.management_domain = $vBlock.management_domain }
+    if ($vBlock.vmotion_range) {
+        if (-not $inv.network.vmotion) { $inv.network.vmotion = @{} }
+        $inv.network.vmotion.range_start = $vBlock.vmotion_range.start
+        $inv.network.vmotion.range_end   = $vBlock.vmotion_range.end
+    }
+    if ($vBlock.vsan_range) {
+        if (-not $inv.network.vsan) { $inv.network.vsan = @{} }
+        $inv.network.vsan.range_start = $vBlock.vsan_range.start
+        $inv.network.vsan.range_end   = $vBlock.vsan_range.end
+    }
+}
+if ($inv.hosts_by_version -and $inv.hosts_by_version[$Version]) {
+    $inv.hosts = $inv.hosts_by_version[$Version]
+}
+if (-not $inv.hosts -or @($inv.hosts).Count -lt 4) {
+    throw "inventory 沒給 $Version 的 4 台 host (hosts_by_version[$Version] 缺值或不滿 4 台)"
+}
+if (-not $inv.vcf.management_domain) {
+    throw "inventory 沒給 $Version 的 vcf.versions[$Version].management_domain"
+}
 
 #--- 讀 secrets ------------------------------------------------------------
 $secrets = @{}
@@ -101,9 +136,15 @@ if ($SecretsAlreadyLoaded) {
             admin_pw = $env:VCFOPS_ADMIN_PW
         }
     }
+    # 5.2.1 額外需要 Cloud Builder admin 密碼 (basic auth 用)
+    if ($Version -eq '5.2.1') {
+        $secrets.cloud_builder = @{
+            admin_pw = $env:CB_ADMIN_PW
+        }
+    }
     foreach ($k1 in $secrets.Keys) {
         foreach ($k2 in $secrets[$k1].Keys) {
-            if (-not $secrets[$k1][$k2]) { throw "Env 缺值: $k1.$k2 (沒 source load-secrets.sh ? 9.0 需多 source VCFOPS_*)" }
+            if (-not $secrets[$k1][$k2]) { throw "Env 缺值: $k1.$k2 (沒 source load-secrets.sh ? 9.0 需 VCFOPS_*, 5.2.1 需 CB_ADMIN_PW)" }
         }
     }
 } else {
@@ -191,37 +232,46 @@ try {
 #--- Lab workarounds ------------------------------------------------------
 if ($LabMode) {
     Write-Host "套用 -LabMode workarounds (Version=$Version)..."
-    if ($Version -eq '9.1') {
-        # 9.1: 用 skipChecks 陣列繞 nested CPU / NIC / HCL / thumbprint
-        if (-not $parsed.PSObject.Properties['skipChecks']) {
-            $parsed | Add-Member -NotePropertyName skipChecks -NotePropertyValue @()
-        }
-        $parsed.skipChecks = @(
-            'NESTED_CPU_CHECK',
-            'NIC_COUNT_CHECK',
-            'MIN_HOST_CHECK',
-            'VSAN_ESA_HCL_CHECK',
-            'ESX_THUMBPRINT_CHECK'
-        )
-        if ($parsed.vsanSpec.esaConfig.enabled -eq $true) {
-            Write-Host "  (留 vSAN ESA enabled = true, 改用 skipChecks 繞 HCL)"
-        }
-    } else {
-        # 9.0: 沒有 skipChecks 陣列; 控制旗標散在各 spec 內
-        $parsed.skipEsxThumbprintValidation = $true
-        $parsed.skipGatewayPingValidation   = $true
-        # nested 強烈建議關 ESA (走 OSA), 9.0 ESA 對 HCL 較嚴
-        if ($parsed.datastoreSpec -and $parsed.datastoreSpec.vsanSpec -and $parsed.datastoreSpec.vsanSpec.esaConfig) {
-            if ($parsed.datastoreSpec.vsanSpec.esaConfig.enabled -eq $true) {
-                Write-Host "  vSAN ESA -> false (nested lab)"
-                $parsed.datastoreSpec.vsanSpec.esaConfig.enabled = $false
+    switch ($Version) {
+        '9.1' {
+            # 9.1: 用 skipChecks 陣列繞 nested CPU / NIC / HCL / thumbprint
+            if (-not $parsed.PSObject.Properties['skipChecks']) {
+                $parsed | Add-Member -NotePropertyName skipChecks -NotePropertyValue @()
+            }
+            $parsed.skipChecks = @(
+                'NESTED_CPU_CHECK',
+                'NIC_COUNT_CHECK',
+                'MIN_HOST_CHECK',
+                'VSAN_ESA_HCL_CHECK',
+                'ESX_THUMBPRINT_CHECK'
+            )
+            if ($parsed.vsanSpec.esaConfig.enabled -eq $true) {
+                Write-Host "  (留 vSAN ESA enabled = true, 改用 skipChecks 繞 HCL)"
             }
         }
-        # 把 hostSpecs[].sslThumbprint 的 'REPLACE_OR_SKIP' 拿掉 (配 skipEsxThumbprintValidation=true)
-        foreach ($h in $parsed.hostSpecs) {
-            if ($h.sslThumbprint -eq 'REPLACE_OR_SKIP') {
-                $h.PSObject.Properties.Remove('sslThumbprint')
+        '9.0' {
+            # 9.0: 沒有 skipChecks 陣列; 控制旗標散在各 spec 內
+            $parsed.skipEsxThumbprintValidation = $true
+            $parsed.skipGatewayPingValidation   = $true
+            if ($parsed.datastoreSpec -and $parsed.datastoreSpec.vsanSpec -and $parsed.datastoreSpec.vsanSpec.esaConfig) {
+                if ($parsed.datastoreSpec.vsanSpec.esaConfig.enabled -eq $true) {
+                    Write-Host "  vSAN ESA -> false (nested lab)"
+                    $parsed.datastoreSpec.vsanSpec.esaConfig.enabled = $false
+                }
             }
+            foreach ($h in $parsed.hostSpecs) {
+                if ($h.sslThumbprint -eq 'REPLACE_OR_SKIP') {
+                    $h.PSObject.Properties.Remove('sslThumbprint')
+                }
+            }
+        }
+        '5.2.1' {
+            # 5.2.1: Cloud Builder. 同樣沒 skipChecks 陣列, 旗標散在 spec
+            $parsed.skipEsxThumbprintValidation = $true
+            $parsed.deployWithoutLicenseKeys    = $true
+            $parsed.ceipEnabled                 = $false
+            # hostSpecs[].sshThumbprint/sslThumbprint 留 dummy (skip=true 就不檢查),
+            # 但若是真實環境 (LabMode 關) 須抓真值
         }
     }
 }

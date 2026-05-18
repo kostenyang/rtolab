@@ -1,18 +1,19 @@
-# Layer 2 — VCF Installer Bring-up (9.0 + 9.1)
+# Layer 2 — VCF Installer / Cloud Builder Bring-up (9.0 + 9.1 + 5.2.1)
 
-把 VCF Installer 接到 4 台 nested ESXi，自動 bring up Management Domain (vCenter + NSX + SDDC Manager，9.0 還會多 Operations / Fleet / Collector)。
+把 VCF Installer (9.x) 或 Cloud Builder (5.2.1) 接到 4 台 nested ESXi，自動 bring up Management Domain (vCenter + NSX + SDDC Manager，9.0 還會多 Operations / Fleet / Collector)。
 
-同一份 inventory 同時支援 VCF **9.0** 與 **9.1** 兩個版本，靠 `-Version` 切換模板。
+同一份 inventory 同時支援 VCF **9.0** / **9.1** / **5.2.1** 三個版本，靠 `-Version` 切換 template + auth + workaround。三組 IP / FQDN 互不重疊，可隨時 swap version 重新部署，見 [../inventory/ip-plan.md](../inventory/ip-plan.md)。
 
-## 三隻 PowerShell + 兩份 template
+## 三隻 PowerShell + 三份 template
 
 | 檔案 | 角色 |
 |---|---|
-| `vcf90-bringup.template.json` | VCF 9.0 JSON template (含 `vcfOperationsSpec` / `vcfOperationsFleetManagementSpec` / `vcfOperationsCollectorSpec`，`datastoreSpec.vsanSpec`，`networkSpec.includeIpAddressRanges` 等 9.0-only 欄位) |
-| `vcf91-bringup.template.json` | VCF 9.1 JSON template (`skipChecks` 陣列、頂層 `vsanSpec`) |
-| `Generate-BringupSpec.ps1` | 渲染 template + sops 解密 secrets + 套用 lab workaround → generated-bringup.json. 接 `-Version 9.0|9.1` |
-| `Submit-Bringup.ps1` | 推到 VCF Installer API，先 validation 再 bring-up，poll 完成。9.0 / 9.1 共用 (端點都是 `/v1/sddcs`) |
-| `New-VcfLab.ps1` | 一鍵 wrapper：產 spec → validate → 人類確認 → bring-up. 接 `-Version 9.0|9.1` |
+| `vcf90-bringup.template.json`  | **VCF 9.0** JSON template (含 `vcfOperationsSpec` / `vcfOperationsFleetManagementSpec` / `vcfOperationsCollectorSpec`，`datastoreSpec.vsanSpec`，`networkSpec.includeIpAddressRanges` 等 9.0-only 欄位) |
+| `vcf91-bringup.template.json`  | **VCF 9.1** JSON template (`skipChecks` 陣列、頂層 `vsanSpec`) |
+| `vcf521-bringup.template.json` | **VCF 5.2.1** Cloud Builder template (`pscSpecs`、`overLayTransportZone`/`vlanTransportZone`、`vsanDedup`、`excludedComponents=[AVN,EBGP]`、host `sshThumbprint`+`sslThumbprint`) |
+| `Generate-BringupSpec.ps1` | 渲染 template + sops 解密 secrets + 套用 lab workaround → generated-bringup.json. 接 `-Version 9.0\|9.1\|5.2.1`. 自動把 inventory 的 `vcf.versions[Version]` / `hosts_by_version[Version]` 投影成扁平結構供 template 取值 |
+| `Submit-Bringup.ps1` | 推到 VCF Installer / Cloud Builder API. 9.x 走 POST `/v1/tokens` 拿 JWT (`admin@local`); 5.2.1 走 Basic Auth (`admin`). validation + poll 流程相同 |
+| `New-VcfLab.ps1` | 一鍵 wrapper：產 spec → validate → 人類確認 → bring-up. 接 `-Version 9.0\|9.1\|5.2.1` |
 
 ## 跑法
 
@@ -28,14 +29,19 @@
 ```powershell
 cd layer2-bringup
 
-# VCF 9.0 (預設依 inventory 的 vcf.version, 也可顯式指定)
-pwsh ./New-VcfLab.ps1 -VcfInstaller https://<vcf-installer-ip-or-fqdn> -Version 9.0
+# VCF 9.0 (新 deploy 默認, 含 VCF Operations 三件套)
+pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.34 -Version 9.0
 
-# VCF 9.1
-pwsh ./New-VcfLab.ps1 -VcfInstaller https://<vcf-installer-ip-or-fqdn> -Version 9.1
+# VCF 9.1 (沿用既有 .14-.17 hosts)
+pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.5  -Version 9.1
+
+# VCF 5.2.1 (Cloud Builder, 注意 URL 指向 Cloud Builder, 不是 VCF Installer)
+pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.54 -Version 5.2.1
 ```
 
 `Generate-BringupSpec.ps1` 會自己用 sops 解密 `inventory/secrets/lab.yaml`，不需要先 source 任何 env vars。
+
+> Submit-Bringup 偵測 Version 自動切 auth: 5.2.1 用 `admin` + Basic Auth + `CB_ADMIN_PW`; 9.x 用 `admin@local` + JWT + `VCF_INSTALLER_PW`. env vars 沒設就互動詢問。
 
 ## Lab workarounds (依版本不同)
 
@@ -53,6 +59,12 @@ pwsh ./New-VcfLab.ps1 -VcfInstaller https://<vcf-installer-ip-or-fqdn> -Version 
 - 設 `skipGatewayPingValidation = true` (lab gateway 可能不回 ICMP)
 - 強制 `datastoreSpec.vsanSpec.esaConfig.enabled = false` (nested ESA 對 HCL 嚴)
 - 從 `hostSpecs[].sslThumbprint` 拔掉 `REPLACE_OR_SKIP` placeholder
+
+**VCF 5.2.1** — Cloud Builder 也沒 `skipChecks` 陣列；`-LabMode` 會：
+- 設 `skipEsxThumbprintValidation = true` (host `sshThumbprint`/`sslThumbprint` 留 dummy)
+- 設 `deployWithoutLicenseKeys = true` (lab 用 60-day eval)
+- 設 `ceipEnabled = false`
+- Template 已預設 `excludedComponents = ["AVN","EBGP"]` (不部署 Application Virtual Networks / Edge BGP, 簡化 lab)
 
 正式環境加 `-SkipLabMode`。
 
