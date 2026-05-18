@@ -19,12 +19,10 @@ Layer 2 同時支援 **VCF 9.0** / **9.1** / **5.2.1** bring-up，靠 `-Version`
 │   └── load-secrets.sh
 ├── layer1-nested/              # Nested ESXi 部署 + 部署前準備
 │   └── Prepare-NestedESXi.ps1
-├── layer2-bringup/             # VCF Installer / Cloud Builder JSON + 推送腳本 (9.0 / 9.1 / 5.2.1)
-│   ├── New-VcfLab.ps1          #   一鍵 wrapper, 接 -Version 9.0|9.1|5.2.1
-│   ├── Generate-BringupSpec.ps1 / Submit-Bringup.ps1
-│   ├── vcf90-bringup.template.json    # VCF 9.0 spec (含 Operations / Fleet / Collector)
-│   ├── vcf91-bringup.template.json    # VCF 9.1 spec (skipChecks 陣列)
-│   ├── vcf521-bringup.template.json   # VCF 5.2.1 spec (Cloud Builder, pscSpecs, excludedComponents)
+├── layer2-bringup/             # VCF Installer / Cloud Builder JSON + 推送腳本 (per-version self-contained)
+│   ├── vcf90/                  #   VCF 9.0 (含 VCF Operations 三件套): bringup.template.json + Generate / Submit / New-VcfLab
+│   ├── vcf91/                  #   VCF 9.1 (skipChecks 陣列): 同樣 4 個檔
+│   ├── vcf521/                 #   VCF 5.2.1 (Cloud Builder Basic Auth): 同樣 4 個檔
 │   └── timeout-tuning.md       #   慢速 lab 的 domainmanager timeout workaround
 ├── layer3-postbringup/         # SDDC Manager API: commission / workload domain / NSX (TODO)
 │   └── vcf-operations-automation-deploy-troubleshooting.md  # M02 部署故障排除紀錄
@@ -69,11 +67,10 @@ source /opt/vcf-lab/.venv/bin/activate          # Python venv
 # 1. Layer 1: nested ESXi 部署前準備 (開機後、VCF Installer 前)
 pwsh ./layer1-nested/Prepare-NestedESXi.ps1
 
-# 2. Layer 2: VCF bring-up (腳本自己 sops 解密 secrets，不需先 source)
-#    - inventory 的 vcf.version 決定走 9.0 / 9.1 / 5.2.1; -Version 可顯式覆蓋
-#    - 5.2.1 的 -VcfInstaller URL 要指向 Cloud Builder, 不是 VCF Installer
-pwsh ./layer2-bringup/New-VcfLab.ps1 -VcfInstaller https://192.168.114.34 -Version 9.0
-# pwsh ./layer2-bringup/New-VcfLab.ps1 -VcfInstaller https://192.168.114.54 -Version 5.2.1
+# 2. Layer 2: VCF bring-up (per-version self-contained, 走對應子資料夾)
+pwsh ./layer2-bringup/vcf90/New-VcfLab.ps1  -VcfInstaller https://192.168.114.34
+# 9.1:   pwsh ./layer2-bringup/vcf91/New-VcfLab.ps1  -VcfInstaller https://192.168.114.5
+# 5.2.1: pwsh ./layer2-bringup/vcf521/New-VcfLab.ps1 -CloudBuilder https://192.168.114.54
 
 # 4. Layer 4: day-2 (例: 批次升級 nested ESXi 到 9.1)
 pwsh ./layer4-day2/Run-BatchUpgrade.ps1

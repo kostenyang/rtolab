@@ -16,11 +16,23 @@ lab:
 # 10.0.0.0/23 沒有任何關係, 不要從那邊複製值過來.
 infra:
   # SELAB-Cluster 中央 vCenter (跑 nested ESXi VMs 的那台實體外層 vC)
-  # rtolab.local 的 4 台 nested ESXi 都註冊在這台上
+  # rtolab.local 的 nested ESXi 都註冊在這台上. CNAME -> vcenter.vmware.taiwan
   outer_vcenter:
-    fqdn: selabvc.rtolab.local
-    ip:   REPLACE_ME            # TODO: 填 selabvc 實際 IP
-    user: administrator@vsphere.local
+    fqdn:        vc-mgmt.vmware.taiwan
+    ip:          172.16.10.100
+    user:        administrator@vmwaresso.taiwan   # SSO domain 是 vmwaresso.taiwan (不是 vsphere.local)
+    sso_domain:  vmwaresso.taiwan
+    cluster:     SELAB-Cluster
+    vds:         selab-dswitch
+    # 注意: 這台 vC 不在 rtolab.local zone, 不需要在 kosten DNS 加 A record
+    # (jumpbox 與外網都能透過 vmware.taiwan zone 自己 resolve 到 172.16.10.100)
+
+  # Nested ESXi deploy 目標 (Layer 1 Deploy-NestedESXi.ps1 用)
+  deployment:
+    resource_pool:       Kosten
+    datastore:           "vsanDatastore (1)"     # 留 vsanDatastore (1), 注意空格 + 括弧
+    portgroup:           trunk                    # vDS portgroup, VLAN Trunk [0-4094]
+    enable_mac_learning: true                     # nested ESXi 上 guest VM 需要 (或 promiscuous)
 
   # AD + DNS (rtolab.local zone 權威 DNS + NTP; 跟 VCF mgmt VMs 同 mgmt subnet)
   ad_dns:
@@ -156,18 +168,21 @@ hosts_by_version:
     - { name: vcf-m02-esx03, fqdn: kosten-vcf521-esx03.rtolab.local, mgmt_ip: 192.168.114.52, vmotion_ip: 192.168.115.52, vsan_ip: 192.168.116.52, vmotion_fqdn: kosten-vcf521-esx03-vmot.rtolab.local, vsan_fqdn: kosten-vcf521-esx03-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx03-521 }
     - { name: vcf-m02-esx04, fqdn: kosten-vcf521-esx04.rtolab.local, mgmt_ip: 192.168.114.53, vmotion_ip: 192.168.115.53, vsan_ip: 192.168.116.53, vmotion_fqdn: kosten-vcf521-esx04-vmot.rtolab.local, vsan_fqdn: kosten-vcf521-esx04-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx04-521 }
 
-# -------- ISO / depot / OVA 檔位置 (放在 jumpbox / 自動化主機) -------------
+# -------- ISO / depot / OVA 檔位置 (放在 jumpbox C:\Users\Administrator\rtolab) -------------
+# OVA 檔放在 E:\<version>\, 由 Deploy-NestedESXi.ps1 直接 Import-VApp 到外層 vC
 artifacts:
-  # VCF 9.0
+  # VCF 9.0 (Nested ESXi 9.0.2 + VCF Installer 9.0.2)
   vcf_90:
     nested_esxi_ova:   E:/9.0/Nested_ESXi9.0.2_Appliance_Template_v1.0.ova
-    vcf_installer_ova: E:/9.0/VCF-SDDC-Manager-Appliance-9.0.1.0.24962180.ova
-  # VCF 9.1 (升級 path; 也可直接部署)
+    vcf_installer_ova: E:/9.0/VCF-SDDC-Manager-Appliance-9.0.2.0.25151285.ova
+  # VCF 9.1 (Nested ESXi 9.1.0 + VCF Installer 9.1.0)
   vcf_91:
-    esxi_iso:          E:/9.1/VMware-VMvisor-Installer-9.1.0.0.25370933.x86_64.iso
-    esxi_depot:        E:/9.1/VMware-ESXi-9.1.0.0.25370933-depot.zip
-    vcf_installer_ova: E:/9.1/VCF-Installer-Appliance-9.1.0.0.ova   # 對應 build, 填實際檔名
-  # VCF 5.2.1 (Cloud Builder)
+    nested_esxi_ova:   E:/9.1/Nested_ESXi9.1.0.0_Appliance_Template_v1.0.ova
+    vcf_installer_ova: E:/9.1/VCF-SDDC-Manager-Appliance-9.1.0.0.25371088.ova
+    # (升級 path 用 — 已有 9.0/9.1 OVA 可直接部署, 這兩個檔保留作 day-2 升級)
+    # esxi_iso:          E:/9.1/VMware-VMvisor-Installer-9.1.0.0.25370933.x86_64.iso
+    # esxi_depot:        E:/9.1/VMware-ESXi-9.1.0.0.25370933-depot.zip
+  # VCF 5.2 系列 (label 內部叫 5.2.1, 實際 Cloud Builder 是 5.2.3; Nested 用 8.0u3g)
   vcf_521:
-    nested_esxi_ova:   E:/5.2.1/Nested_ESXi8.0.x_Appliance_Template_v1.0.ova
-    cloud_builder_ova: E:/5.2.1/VMware-Cloud-Builder-5.2.1.0.ova    # 填實際檔名
+    nested_esxi_ova:   E:/5.2.1/Nested_ESXi8.0u3g_Appliance_Template_v1.ova
+    cloud_builder_ova: E:/5.2.1/VMware-Cloud-Builder-5.2.3.0-25219033_OVF10.ova
