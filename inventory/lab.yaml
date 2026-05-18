@@ -1,0 +1,90 @@
+# =============================================================================
+#  VCF 9 Lab inventory  —  明文, 非敏感資料
+#  密碼 / token 放 inventory/secrets/lab.yaml (sops 加密)
+# =============================================================================
+
+lab:
+  name: vcf-m02
+  domain: lab.com
+
+# -------- 物理 / 基礎服務 (lab 外圍) ---------------------------------------
+infra:
+  # 你的 lab vCenter (跑 nested 的那個外層 vCenter)
+  outer_vcenter:
+    fqdn: labvc.lab.com
+    ip:   10.0.0.101
+    user: administrator@vsphere.local
+
+  # AD + DNS + jumpbox
+  jumpbox:
+    fqdn: dc01.lab.com
+    ip:   10.0.0.200
+    role: [ad, dns, jumpbox]
+
+  # 自動化主機 (這台跑你的所有 script)
+  automation_host:
+    ip:   10.0.0.65
+    user: labops
+
+# -------- VCF Management Domain --------------------------------------------
+vcf:
+  management_domain:
+    name: vcf-m02
+    sddc_manager:
+      fqdn: sddc-mgr.lab.com
+      # ip 由 VCF Installer 賦予
+    inner_vcenter:
+      fqdn: vc-mgmt.lab.com
+    nsx_manager:
+      fqdn: nsx-mgmt.lab.com
+
+# -------- Nested ESXi hosts (4 台 management domain) -----------------------
+# name            = ESXi hostname (不含 -91 後綴)
+# nested_vm_name  = 外層 vCenter (labvc.lab.com) 上看到的 VM 名 (含 -91 後綴)
+hosts:
+  - name: vcf-m02-esx01
+    mgmt_ip: 192.168.114.14
+    fqdn: esx01.lab.com
+    vmotion_ip: 192.168.115.14
+    vsan_ip:    192.168.116.14
+    role: management
+    nested_vm_name: vcf-m02-esx01-91
+
+  - name: vcf-m02-esx02
+    mgmt_ip: 192.168.114.15
+    fqdn: esx02.lab.com
+    vmotion_ip: 192.168.115.15
+    vsan_ip:    192.168.116.15
+    role: management
+    nested_vm_name: vcf-m02-esx02-91
+
+  - name: vcf-m02-esx03
+    mgmt_ip: 192.168.114.16
+    fqdn: esx03.lab.com
+    vmotion_ip: 192.168.115.16
+    vsan_ip:    192.168.116.16
+    role: management
+    nested_vm_name: vcf-m02-esx03-91
+
+  - name: vcf-m02-esx04
+    mgmt_ip: 192.168.114.17
+    fqdn: esx04.lab.com
+    vmotion_ip: 192.168.115.17
+    vsan_ip:    192.168.116.17
+    role: management
+    nested_vm_name: vcf-m02-esx04-91
+
+# -------- 網路 -------------------------------------------------------------
+# SELAB-Cluster underlay: selab-dswitch dvPortgroup 命名 = pg<VLAN>,subnet = 192.168.<VLAN>.0/24
+# 已佔用 (不可動): pg113 / pg119 / pg120 (Sean 的 lab)
+# 本 lab 分配: pg114 = mgmt, pg115 = vmotion, pg116 = vsan, pg117 = overlay
+network:
+  mgmt:    { vlan: 114, cidr: 192.168.114.0/24, gateway: 192.168.114.1, portgroup: selab-dswitch-pg114 }
+  vmotion: { vlan: 115, cidr: 192.168.115.0/24, gateway: 192.168.115.1, portgroup: selab-dswitch-pg115 }
+  vsan:    { vlan: 116, cidr: 192.168.116.0/24, gateway: 192.168.116.1, portgroup: selab-dswitch-pg116 }
+  overlay: { vlan: 117, cidr: 192.168.117.0/24, gateway: 192.168.117.1, portgroup: selab-dswitch-pg117 }
+
+# -------- ISO / depot 檔位置 (放在 jumpbox / 自動化主機) ------------------
+artifacts:
+  esxi_91_iso:   E:/9.1/VMware-VMvisor-Installer-9.1.0.0.25370933.x86_64.iso
+  esxi_91_depot: E:/9.1/VMware-ESXi-9.1.0.0.25370933-depot.zip
