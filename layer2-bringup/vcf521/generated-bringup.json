@@ -1,0 +1,310 @@
+{
+  "_comment": "VCF 5.2.1 Management Domain Bring-up Spec for Cloud Builder. 結構對齊 William Lam vcf-automated-lab-deployment.ps1 / Cloud Builder 5.2.1 OpenAPI. 由 Generate-BringupSpec.ps1 -Version 5.2.1 從 inventory/lab.yaml 渲染. POST 到 Cloud Builder /v1/sddcs (Basic Auth, admin user).",
+  "skipEsxThumbprintValidation": true,
+  "managementPoolName": "vcf-m02-np01",
+  "sddcId": "vcf-m02",
+  "taskName": "workflowconfig/workflowspec-ems.json",
+  "esxLicense": "",
+  "ceipEnabled": false,
+  "deployWithoutLicenseKeys": true,
+  "ntpServers": [
+    "192.168.114.200"
+  ],
+  "dnsSpec": {
+    "subdomain": "rtolab.local",
+    "domain": "rtolab.local",
+    "nameserver": "192.168.114.200"
+  },
+  "sddcManagerSpec": {
+    "ipAddress": "192.168.114.55",
+    "netmask": "255.255.255.0",
+    "hostname": "kosten-vcf521-sddc.rtolab.local",
+    "localUserPassword": "VMware1!VMware1!",
+    "vcenterId": "vcenter-1",
+    "rootUserCredentials": {
+      "username": "root",
+      "password": "VMware1!VMware1!"
+    },
+    "secondUserCredentials": {
+      "username": "vcf",
+      "password": "VMware1!VMware1!"
+    },
+    "restApiCredentials": {
+      "username": "admin",
+      "password": "VMware1!VMware1!"
+    }
+  },
+  "networkSpecs": [
+    {
+      "networkType": "MANAGEMENT",
+      "subnet": "192.168.114.0/24",
+      "gateway": "192.168.114.1",
+      "vlanId": "114",
+      "mtu": "1500",
+      "portGroupKey": "vcf-m02-vds01-pg-mgmt",
+      "association": "vcf-m02-dc01",
+      "activeUplinks": [
+        "uplink1",
+        "uplink2"
+      ],
+      "standbyUplinks": []
+    },
+    {
+      "networkType": "VMOTION",
+      "subnet": "192.168.115.0/24",
+      "gateway": "192.168.115.1",
+      "vlanId": "115",
+      "mtu": "9000",
+      "portGroupKey": "vcf-m02-vds01-pg-vmotion",
+      "association": "vcf-m02-dc01",
+      "activeUplinks": [
+        "uplink1",
+        "uplink2"
+      ],
+      "standbyUplinks": [],
+      "includeIpAddressRanges": [
+        {
+          "startIpAddress": "192.168.115.50",
+          "endIpAddress": "192.168.115.53"
+        }
+      ]
+    },
+    {
+      "networkType": "VSAN",
+      "subnet": "192.168.116.0/24",
+      "gateway": "192.168.116.1",
+      "vlanId": "116",
+      "mtu": "9000",
+      "portGroupKey": "vcf-m02-vds01-pg-vsan",
+      "association": "vcf-m02-dc01",
+      "activeUplinks": [
+        "uplink1",
+        "uplink2"
+      ],
+      "standbyUplinks": [],
+      "includeIpAddressRanges": [
+        {
+          "startIpAddress": "192.168.116.50",
+          "endIpAddress": "192.168.116.53"
+        }
+      ]
+    }
+  ],
+  "nsxtSpec": {
+    "nsxtManagerSize": "medium",
+    "nsxtManagers": [
+      {
+        "hostname": "kosten-vcf521-nsxn1.rtolab.local",
+        "ip": "192.168.114.57"
+      }
+    ],
+    "rootNsxtManagerPassword": "VMware1!VMware1!",
+    "nsxtAdminPassword": "VMware1!VMware1!",
+    "nsxtAuditPassword": "VMware1!VMware1!",
+    "rootLoginEnabledForNsxtManager": true,
+    "sshEnabledForNsxtManager": true,
+    "overLayTransportZone": {
+      "zoneName": "vcf-m02-tz-overlay01",
+      "networkName": "netName-overlay"
+    },
+    "vlanTransportZone": {
+      "zoneName": "vcf-m02-tz-vlan01",
+      "networkName": "netName-vlan"
+    },
+    "vip": "192.168.114.58",
+    "vipFqdn": "kosten-vcf521-nsx.rtolab.local",
+    "nsxtLicense": "",
+    "transportVlanId": "117",
+    "ipAddressPoolSpec": {
+      "name": "nsx-tep-vcf-m02",
+      "description": "NSX TEP Pool for vcf-m02",
+      "subnets": [
+        {
+          "ipAddressPoolRanges": [
+            {
+              "start": "192.168.117.160",
+              "end": "192.168.117.223"
+            }
+          ],
+          "cidr": "192.168.117.0/24",
+          "gateway": "192.168.117.1"
+        }
+      ]
+    }
+  },
+  "vsanSpec": {
+    "vsanName": "vcf-m02-vsan01",
+    "vsanDedup": "false",
+    "licenseFile": "",
+    "datastoreName": "vcf-m02-vsan01"
+  },
+  "dvSwitchVersion": "7.0.0",
+  "dvsSpecs": [
+    {
+      "dvsName": "vcf-m02-vds01",
+      "vcenterId": "vcenter-1",
+      "vmnics": [
+        "vmnic0",
+        "vmnic1"
+      ],
+      "mtu": 9000,
+      "networks": [
+        "MANAGEMENT",
+        "VMOTION",
+        "VSAN"
+      ],
+      "isUsedByNsxt": true,
+      "niocSpecs": [
+        {
+          "trafficType": "VSAN",
+          "value": "HIGH"
+        },
+        {
+          "trafficType": "VMOTION",
+          "value": "LOW"
+        },
+        {
+          "trafficType": "VDP",
+          "value": "LOW"
+        },
+        {
+          "trafficType": "VIRTUALMACHINE",
+          "value": "HIGH"
+        },
+        {
+          "trafficType": "MANAGEMENT",
+          "value": "NORMAL"
+        },
+        {
+          "trafficType": "NFS",
+          "value": "LOW"
+        },
+        {
+          "trafficType": "HBR",
+          "value": "LOW"
+        },
+        {
+          "trafficType": "FAULTTOLERANCE",
+          "value": "LOW"
+        },
+        {
+          "trafficType": "ISCSI",
+          "value": "LOW"
+        }
+      ]
+    }
+  ],
+  "clusterSpec": {
+    "clusterName": "vcf-m02-cl01",
+    "vcenterName": "vcenter-1",
+    "clusterEvcMode": "",
+    "clusterImageEnabled": true,
+    "vmFolders": {
+      "MANAGEMENT": "vcf-m02-fd-mgmt",
+      "NETWORKING": "vcf-m02-fd-nsx",
+      "EDGENODES": "vcf-m02-fd-edge"
+    }
+  },
+  "resourcePoolSpecs": [],
+  "pscSpecs": [
+    {
+      "pscId": "psc-1",
+      "vcenterId": "vcenter-1",
+      "adminUserSsoPassword": "VMware1!VMware1!",
+      "pscSsoSpec": {
+        "ssoDomain": "vsphere.local"
+      }
+    }
+  ],
+  "vcenterSpec": {
+    "vcenterIp": "192.168.114.56",
+    "vcenterHostname": "kosten-vcf521-vc.rtolab.local",
+    "vcenterId": "vcenter-1",
+    "licenseFile": "",
+    "vmSize": "tiny",
+    "storageSize": "",
+    "rootVcenterPassword": "VMware1!VMware1!"
+  },
+  "hostSpecs": [
+    {
+      "association": "vcf-m02-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "192.168.114.50",
+        "cidr": "192.168.114.0/24",
+        "gateway": "192.168.114.1"
+      },
+      "hostname": "kosten-vcf521-esx01.rtolab.local",
+      "credentials": {
+        "username": "root",
+        "password": "VMware1!VMware1!"
+      },
+      "sshThumbprint": "SHA256:DUMMY",
+      "sslThumbprint": "SHA25_DUMMY",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-1"
+    },
+    {
+      "association": "vcf-m02-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "192.168.114.51",
+        "cidr": "192.168.114.0/24",
+        "gateway": "192.168.114.1"
+      },
+      "hostname": "kosten-vcf521-esx02.rtolab.local",
+      "credentials": {
+        "username": "root",
+        "password": "VMware1!VMware1!"
+      },
+      "sshThumbprint": "SHA256:DUMMY",
+      "sslThumbprint": "SHA25_DUMMY",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-2"
+    },
+    {
+      "association": "vcf-m02-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "192.168.114.52",
+        "cidr": "192.168.114.0/24",
+        "gateway": "192.168.114.1"
+      },
+      "hostname": "kosten-vcf521-esx03.rtolab.local",
+      "credentials": {
+        "username": "root",
+        "password": "VMware1!VMware1!"
+      },
+      "sshThumbprint": "SHA256:DUMMY",
+      "sslThumbprint": "SHA25_DUMMY",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-3"
+    },
+    {
+      "association": "vcf-m02-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "192.168.114.53",
+        "cidr": "192.168.114.0/24",
+        "gateway": "192.168.114.1"
+      },
+      "hostname": "kosten-vcf521-esx04.rtolab.local",
+      "credentials": {
+        "username": "root",
+        "password": "VMware1!VMware1!"
+      },
+      "sshThumbprint": "SHA256:DUMMY",
+      "sslThumbprint": "SHA25_DUMMY",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-4"
+    }
+  ],
+  "excludedComponents": [
+    "AVN",
+    "EBGP"
+  ],
+  "_lab_workarounds": {
+    "comment": "由 Generate-BringupSpec.ps1 在 -LabMode 開啟時注入 / 修改; 5.2.1 沒 skipChecks 陣列, 旗標散在各 spec",
+    "notes": [
+      "skipEsxThumbprintValidation 已預設 true (lab); sshThumbprint/sslThumbprint 用 dummy",
+      "deployWithoutLicenseKeys=true 跳過 license 檢查 (lab 用 60-day eval)",
+      "excludedComponents=['AVN','EBGP'] 不部署 AVN / Edge BGP, 簡化 lab"
+    ]
+  }
+}

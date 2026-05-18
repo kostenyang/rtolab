@@ -251,6 +251,19 @@ foreach ($group in $grouped) {
                 } catch { Write-DeployLog "  disk resize failed: $($_.Exception.Message)" 'Yellow' $vmTag }
             }
 
+            # OVA 預設 BootOrder = CD-ROM only -> 找不到 ISO 就掉 BIOS. 改成 Disk first.
+            $diskKey = ($disks | Where-Object { $_.Name -eq 'Hard disk 1' }).ExtensionData.Key
+            if ($diskKey) {
+                $bootDisk = New-Object VMware.Vim.VirtualMachineBootOptionsBootableDiskDevice -Property @{ DeviceKey = $diskKey }
+                $bootOpts = New-Object VMware.Vim.VirtualMachineBootOptions -Property @{ BootOrder = @($bootDisk) }
+                $reconfSpec = New-Object VMware.Vim.VirtualMachineConfigSpec -Property @{ BootOptions = $bootOpts }
+                $task = $vm.ExtensionData.ReconfigVM_Task($reconfSpec)
+                $tv = Get-View $task
+                while ($tv.Info.State -in 'running','queued') { Start-Sleep 1; $tv.UpdateViewData('Info.State','Info.Error') }
+                if ($tv.Info.State -eq 'success') { Write-DeployLog "  BootOrder -> Disk first" 'DarkGray' $vmTag }
+                else { Write-DeployLog "  BootOrder set failed: $($tv.Info.Error.LocalizedMessage)" 'Yellow' $vmTag }
+            }
+
             Write-DeployLog "powering on..." 'White' $vmTag
             $vm | Start-VM -Confirm:$false | Out-Null
             Write-DeployLog "✓ done" 'Green' $vmTag
