@@ -13,9 +13,12 @@ crash.log
 # Ansible
 *.retry
 
-# Secrets (解密後的暫存檔)
+# Secrets (本機明文; 也包含 sops 解密後的暫存)
+# rtolab 用明文 lab.yaml + 強 gitignore (Windows 環境沒 sops/age, 加密過度工程)
+inventory/secrets/lab.yaml
 inventory/secrets/*.dec.*
 inventory/secrets/*.plain.*
+!inventory/secrets/lab.example.yaml
 !inventory/secrets/.gitkeep
 
 # Age 私鑰絕對不能進 git

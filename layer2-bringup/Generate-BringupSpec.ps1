@@ -150,13 +150,22 @@ if ($SecretsAlreadyLoaded) {
 } else {
     $secretsFile = Join-Path $repoRoot 'inventory/secrets/lab.yaml'
     if (-not (Test-Path $secretsFile)) {
-        throw "Secrets 檔不存在: $secretsFile`n請先 cp lab.example.yaml lab.yaml, 填值, 再 sops -e -i lab.yaml"
+        throw "Secrets 檔不存在: $secretsFile`n請先 Copy-Item lab.example.yaml lab.yaml, 填值 (lab.yaml 已被 .gitignore 強擋)"
     }
-    # 透過 sops 解密
-    if (-not (Get-Command sops -ErrorAction SilentlyContinue)) {
-        throw "需要 sops, 或加 -SecretsAlreadyLoaded 並 source load-secrets.sh"
+    # rtolab 走明文 lab.yaml (本機, .gitignore'd). 偵測檔案開頭是不是 sops
+    # 加密格式 (sops 加密過會在 yaml 頂層加 'sops:' key 跟 metadata), 是的話
+    # 走原 sops -d 路徑 (相容性); 否則直接 ConvertFrom-Yaml.
+    $raw = Get-Content -Raw $secretsFile
+    if ($raw -match '(?ms)^\s*sops:\s*\n') {
+        if (-not (Get-Command sops -ErrorAction SilentlyContinue)) {
+            throw "secrets 檔是 sops 加密過的, 但找不到 sops 指令.`n選一: (1) 改用明文 lab.yaml; (2) 裝 sops; (3) 加 -SecretsAlreadyLoaded 從 env vars 讀."
+        }
+        Write-Host "Secrets 檔是 sops 加密, 解密中..."
+        $secrets = (sops -d $secretsFile) -join "`n" | ConvertFrom-Yaml
+    } else {
+        Write-Host "Secrets 檔: 明文 lab.yaml (.gitignore'd)"
+        $secrets = $raw | ConvertFrom-Yaml
     }
-    $secrets = (sops -d $secretsFile) -join "`n" | ConvertFrom-Yaml
 }
 
 #--- Template engine ------------------------------------------------------
