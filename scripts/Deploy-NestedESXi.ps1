@@ -1,8 +1,10 @@
 <#
 .SYNOPSIS
     從 E:\<version>\ OVA 部署 4 台 nested ESXi 到外層 vCenter (vc-mgmt.vmware.taiwan),
-    每版本一組 (5.2.1 / 9.0 / 9.1), 三版本平行部署 = 12 台 VM 同時上線.
-    順便 enable MAC learning + ForgedTransmits 在 'trunk' portgroup (nested 需要).
+    每版本一組 (5.2.1 / 9.0 / 9.1), sequential per-version, 共 12 台 VM.
+    VMs 分到 vApp: rtolab-vcf90 / rtolab-vcf91 / rtolab-vcf521.
+    順便 enable Promiscuous + ForgedTransmits + MacChanges + MAC learning 在
+    'trunk' portgroup (nested 需要).
 
 .DESCRIPTION
     讀 inventory/lab.yaml 跟 inventory/secrets/lab.yaml (明文, .gitignore'd):
@@ -10,40 +12,29 @@
       - infra.deployment: resource_pool / datastore / portgroup
       - artifacts.vcf_{90,91,521}.nested_esxi_ova: OVA 路徑
       - hosts_by_version[V]: 4 台主機 (fqdn, mgmt_ip)
-      - vcf.versions[V].management_domain.tep_pool / network: 給 OVF DNS/NTP/gateway
 
-    部署步驟 (per version, 三組平行):
-      1. 連 outer vC
-      2. 對 'trunk' portgroup 做 Set-VDSecurityPolicy + MAC learning (idempotent)
-      3. 找 SELAB-Cluster 任一連線中的 host (給 Import-VApp 用)
-      4. 對 4 台主機: 載入 OVF config -> 填 guestinfo -> Import-VApp (thin)
-                      -> 拉大 cache/capacity 磁碟 -> Power on
-      5. 完成
+    一次跑 12 台 sequential (~40 sec/台, 約 8-10 分鐘). 之前嘗試平行,
+    但 PowerCLI 跨 runspace 的 Disconnect-VIServer * 會踢別 runspace
+    的 session, 最後一台常 fail. 換成同 session sequential 之後穩.
 
-    建議: 第一次跑加 -WhatIf 先看會做什麼 + dump OVF property names.
+    建議: 第一次跑加 -WhatIf 看 OVF properties + 計畫.
 
 .PARAMETER Versions
     要部哪幾個版本. 預設全部三版本.
 
 .PARAMETER WhatIf
-    Dry-run: 列出會部什麼, 印 OVF property names, 不真的 Import.
+    Dry-run: 列計畫 + 印 OVF property names, 不真的 Import.
 
 .PARAMETER GenerateBringupSpec
-    完成後也跑 layer2-bringup/Generate-BringupSpec.ps1 -Version <V> 產 JSON.
-
-.PARAMETER ThrottleLimit
-    平行度. 預設 3 (一個版本一個 runspace).
+    完成後也跑 layer2-bringup/vcf<V>/Generate-BringupSpec.ps1 產 JSON.
 
 .PARAMETER SkipMacLearningSetup
-    跳過 portgroup MAC learning 設定 (如果 SELAB underlay 是 Sean 管的, 你不想動).
+    跳過 portgroup MAC learning 設定 (SELAB underlay 是 Sean 管的, 你不想動).
 
 .EXAMPLE
     pwsh scripts\Deploy-NestedESXi.ps1 -WhatIf
-    # 先看計畫
-
-.EXAMPLE
     pwsh scripts\Deploy-NestedESXi.ps1 -GenerateBringupSpec
-    # 真的部 12 台 + 順便產三份 bringup JSON
+    pwsh scripts\Deploy-NestedESXi.ps1 -Versions 9.1     # 只部 9.1 (補單台等)
 #>
 
 [CmdletBinding()]
@@ -51,7 +42,6 @@ param(
     [string[]] $Versions = @('9.0','9.1','5.2.1'),
     [switch]   $WhatIf,
     [switch]   $GenerateBringupSpec,
-    [int]      $ThrottleLimit = 3,
     [switch]   $SkipMacLearningSetup
 )
 
@@ -105,7 +95,6 @@ if (-not $SkipMacLearningSetup) {
     if ($WhatIf) {
         Write-Host "  (WhatIf) would set ForgedTransmits=True, MacChanges=True, MacLearningPolicy.Enabled=True" -ForegroundColor DarkGray
     } else {
-        # 全部走 ConfigSpec, 從頭建 (避免 clone 既有導致 BoolPolicy.Value 不能 set)
         $view = Get-View $pg
         $bpTrue = { New-Object VMware.Vim.BoolPolicy -Property @{ Value = $true } }
         $spec = New-Object VMware.Vim.DVPortgroupConfigSpec -Property @{
@@ -137,40 +126,46 @@ if (-not $SkipMacLearningSetup) {
     }
 }
 
-# ---- 建 deploy list (12 items) --------------------------------------------
+# ---- 建 deploy list -------------------------------------------------------
 $deployList = @()
 foreach ($v in $Versions) {
-    $vKey = $v -replace '\.',''      # 9.0 -> 90, 5.2.1 -> 521
-    $artKey = "vcf_$vKey"            # vcf_90, vcf_91, vcf_521
+    $vKey = $v -replace '\.',''
+    $artKey = "vcf_$vKey"
     $ovaPath = $inv.artifacts.$artKey.nested_esxi_ova
     if (-not $ovaPath -or -not (Test-Path $ovaPath)) {
         Write-Warning "skip version $v : OVA 找不到 ($ovaPath)"
         continue
     }
+    # Per-version sizing (預設 12 vCPU / 96GB; 各版本可在 inventory 覆蓋)
+    $sz = $inv.vcf.versions[$v].sizing
+    $vcpu = if ($sz -and $sz.vcpu)      { [int]$sz.vcpu }      else { 12 }
+    $mem  = if ($sz -and $sz.memory_gb) { [int]$sz.memory_gb } else { 96 }
     foreach ($h in $inv.hosts_by_version[$v]) {
         $deployList += [pscustomobject]@{
             Version       = $v
             VKey          = $vKey
             OvaPath       = $ovaPath
-            VMName        = $h.nested_vm_name        # e.g. vcf-m02-esx01-90
-            Hostname      = $h.fqdn                  # kosten-vcf90-esx01.rtolab.local
+            VMName        = $h.nested_vm_name
+            Hostname      = $h.fqdn
             MgmtIp        = $h.mgmt_ip
             Netmask       = '255.255.255.0'
             Gateway       = $inv.network.mgmt.gateway
-            MgmtVlan      = $inv.network.mgmt.vlan   # 114 — nested ESXi 自己 tag (因為 underlay 是 trunk)
+            MgmtVlan      = $inv.network.mgmt.vlan
             Dns           = $adIp
             Domain        = $domain
             Ntp           = $adIp
             EsxiPw        = $esxiPw
+            VCpu          = $vcpu
+            MemGB         = $mem
         }
     }
 }
 
 Write-Host ""
-Write-Host "Deploy plan ($($deployList.Count) VMs, throttle=$ThrottleLimit):" -ForegroundColor Yellow
+Write-Host "Deploy plan ($($deployList.Count) VMs, sequential per version):" -ForegroundColor Yellow
 $deployList | Format-Table Version, VMName, Hostname, MgmtIp -AutoSize
 
-# ---- WhatIf: dump OVF properties of first OVA per version + bye ----------
+# ---- WhatIf: dump OVF properties + bye -----------------------------------
 if ($WhatIf) {
     Write-Host ""
     Write-Host "(WhatIf) OVF property names per OVA:" -ForegroundColor Cyan
@@ -186,61 +181,42 @@ if ($WhatIf) {
     return
 }
 
-# ---- Disconnect 主 session, 讓 parallel runspace 自己 connect -------------
-$vcCtx = @{ Fqdn=$vcFqdn; User=$vcUser; Pw=$vcPw }
-$rpId  = $rp.Id
-$dsId  = $ds.Id
-$pgId  = $pg.Id
-$hostNames = $availableHosts.Name
-Disconnect-VIServer * -Confirm:$false -Force | Out-Null
-
-# ---- 平行部 (一個版本一個 runspace, 版本內 4 台 sequential) ----------------
-# 為什麼分組: PowerCLI 的 Get-OvfConfiguration 對同一 OVA 並發呼叫會出
-# "Object reference not set" 競態. 分組後同 OVA 的 4 台 sequential, 不衝突.
+# ---- Sequential deploy: 一版接一版, 同個 vC session, 不會搶 --------------
 Write-Host ""
-Write-Host "Starting per-version parallel deploy (3 versions || , 4 VMs/version sequential)..." -ForegroundColor Cyan
+Write-Host "Starting per-version sequential deploy..." -ForegroundColor Cyan
+
+function Write-DeployLog($msg, $color='White', $tag='') {
+    $ts = (Get-Date).ToString('HH:mm:ss')
+    $prefix = if ($tag) { "[$tag] " } else { '' }
+    Write-Host "[$ts]$prefix$msg" -ForegroundColor $color
+}
 
 $grouped = $deployList | Group-Object Version
-$grouped | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
-    $group   = $_
+foreach ($group in $grouped) {
     $version = $group.Name
     $items   = $group.Group
-    $ctx     = $using:vcCtx
-    $rpId    = $using:rpId
-    $dsId    = $using:dsId
-    $pgId    = $using:pgId
-    $hostNames = $using:hostNames
+    $vKey    = $version -replace '\.',''
+    $vappName = "rtolab-vcf$vKey"
 
-    Import-Module VMware.VimAutomation.Core
-    Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false -Scope Session | Out-Null
-
-    function Write-DeployLog($msg, $color='White', $vmName='') {
-        $ts = (Get-Date).ToString('HH:mm:ss')
-        $tag = if ($vmName) { "$version/$vmName" } else { $version }
-        Write-Host "[$ts][$tag] $msg" -ForegroundColor $color
+    # 找/建 vApp 在 Kosten RP 下
+    $deployVapp = Get-VApp -Name $vappName -ErrorAction SilentlyContinue
+    if (-not $deployVapp) {
+        Write-DeployLog "creating vApp '$vappName' under RP '$($rp.Name)'..." 'Cyan' $version
+        $deployVapp = New-VApp -Name $vappName -Location $rp
+    } else {
+        Write-DeployLog "vApp '$vappName' 已存在, 重用" 'DarkGray' $version
     }
-
-    Write-DeployLog "connecting vCenter (1 session for $($items.Count) VMs)..."
-    try {
-        Connect-VIServer $ctx.Fqdn -User $ctx.User -Password $ctx.Pw -ErrorAction Stop | Out-Null
-    } catch {
-        Write-DeployLog "connect failed: $($_.Exception.Message)" 'Red'
-        return
-    }
-
-    $rp = Get-VIObjectByVIView -MORef $rpId
-    $ds = Get-VIObjectByVIView -MORef $dsId
-    $pg = Get-VIObjectByVIView -MORef $pgId
 
     foreach ($item in $items) {
+        $vmTag = "$version/$($item.VMName)"
         try {
             if (Get-VM -Name $item.VMName -ErrorAction SilentlyContinue) {
-                Write-DeployLog "VM exists, skip" 'DarkYellow' $item.VMName
+                Write-DeployLog "VM exists, skip" 'DarkYellow' $vmTag
                 continue
             }
-            $vmhost = Get-VMHost -Name ($hostNames | Get-Random) -ErrorAction Stop
+            $vmhost = Get-VMHost -Name (@($availableHosts.Name) | Get-Random) -ErrorAction Stop
 
-            Write-DeployLog "loading OVF config + setting guestinfo..." 'White' $item.VMName
+            Write-DeployLog "loading OVF + setting guestinfo..." 'White' $vmTag
             $ovf = Get-OvfConfiguration -Ovf $item.OvaPath
             $gi = $ovf.Common.guestinfo
             $gi.hostname.Value   = $item.Hostname
@@ -256,35 +232,39 @@ $grouped | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
             if ($gi.PSObject.Properties['createvmfs']) { $gi.createvmfs.Value = 'False' }
             $ovf.NetworkMapping.VM_Network.Value = $pg
 
-            Write-DeployLog "Import-VApp (thin, ~1GB upload)..." 'White' $item.VMName
+            Write-DeployLog "Import-VApp (thin, ~1GB upload) into vApp '$vappName'..." 'White' $vmTag
             $vapp = Import-VApp -Source $item.OvaPath -OvfConfiguration $ovf `
                                 -Name $item.VMName -VMHost $vmhost -Datastore $ds `
-                                -DiskStorageFormat Thin -Location $rp -Force -ErrorAction Stop
+                                -DiskStorageFormat Thin -Location $deployVapp -Force -ErrorAction Stop
 
             $vm = if ($vapp -is [VMware.VimAutomation.ViCore.Types.V1.Inventory.VApp]) { $vapp | Get-VM } else { $vapp }
+
+            # 拉大 CPU / RAM (OVA default ~2 vCPU/8GB 太小, VCF nested 要 12-24/96)
+            Write-DeployLog "  resize: $($vm.NumCpu) vCPU / $($vm.MemoryGB) GB -> $($item.VCpu) vCPU / $($item.MemGB) GB" 'DarkGray' $vmTag
+            Set-VM -VM $vm -NumCpu $item.VCpu -MemoryGB $item.MemGB -Confirm:$false | Out-Null
 
             $disks = $vm | Get-HardDisk | Sort-Object Name
             if ($disks.Count -ge 3) {
                 try {
-                    if ($disks[1].CapacityGB -lt 100) { Set-HardDisk -HardDisk $disks[1] -CapacityGB 100 -Confirm:$false | Out-Null; Write-DeployLog "  disk2 -> 100GB (cache)" 'DarkGray' $item.VMName }
-                    if ($disks[2].CapacityGB -lt 700) { Set-HardDisk -HardDisk $disks[2] -CapacityGB 700 -Confirm:$false | Out-Null; Write-DeployLog "  disk3 -> 700GB (capacity)" 'DarkGray' $item.VMName }
-                } catch { Write-DeployLog "  disk resize failed: $($_.Exception.Message)" 'Yellow' $item.VMName }
+                    if ($disks[1].CapacityGB -lt 100) { Set-HardDisk -HardDisk $disks[1] -CapacityGB 100 -Confirm:$false | Out-Null; Write-DeployLog "  disk2 -> 100GB (cache)" 'DarkGray' $vmTag }
+                    if ($disks[2].CapacityGB -lt 700) { Set-HardDisk -HardDisk $disks[2] -CapacityGB 700 -Confirm:$false | Out-Null; Write-DeployLog "  disk3 -> 700GB (capacity)" 'DarkGray' $vmTag }
+                } catch { Write-DeployLog "  disk resize failed: $($_.Exception.Message)" 'Yellow' $vmTag }
             }
 
-            Write-DeployLog "powering on..." 'White' $item.VMName
+            Write-DeployLog "powering on..." 'White' $vmTag
             $vm | Start-VM -Confirm:$false | Out-Null
-            Write-DeployLog "✓ done" 'Green' $item.VMName
+            Write-DeployLog "✓ done" 'Green' $vmTag
         } catch {
-            Write-DeployLog "FAILED: $($_.Exception.Message)" 'Red' $item.VMName
+            Write-DeployLog "FAILED: $($_.Exception.Message)" 'Red' $vmTag
         }
     }
-
-    Disconnect-VIServer * -Confirm:$false -Force -ErrorAction SilentlyContinue | Out-Null
-    Write-DeployLog "version $version deploy loop done" 'Cyan'
+    Write-DeployLog "version $version deploy loop done" 'Cyan' $version
 }
 
+Disconnect-VIServer * -Confirm:$false -Force -ErrorAction SilentlyContinue | Out-Null
+
 Write-Host ""
-Write-Host "All deploy jobs finished." -ForegroundColor Green
+Write-Host "All deploy loops finished." -ForegroundColor Green
 
 # ---- Optionally: generate bringup JSON files (per-version self-contained) -
 if ($GenerateBringupSpec) {

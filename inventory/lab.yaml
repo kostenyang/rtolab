@@ -77,6 +77,8 @@ vcf:
 
     # ---- VCF 9.1 -----------------------------------------------------------
     "9.1":
+      # 每台 nested ESXi 的 VM sizing (Deploy-NestedESXi.ps1 用)
+      sizing: { vcpu: 24, memory_gb: 96 }
       management_domain:
         name: vcf-m02
         sddc_manager:  { fqdn: kosten-vcf91-sddc.rtolab.local,  ip: 192.168.114.10 }
@@ -97,6 +99,7 @@ vcf:
 
     # ---- VCF 9.0 (含 VCF Operations 三件套) -------------------------------
     "9.0":
+      sizing: { vcpu: 12, memory_gb: 96 }
       management_domain:
         name: vcf-m02
         sddc_manager:  { fqdn: kosten-vcf90-sddc.rtolab.local,  ip: 192.168.114.35 }
@@ -124,6 +127,7 @@ vcf:
 
     # ---- VCF 5.2.1 (Cloud Builder, 含 PSC remnants 結構) -----------------
     "5.2.1":
+      sizing: { vcpu: 12, memory_gb: 96 }
       management_domain:
         name: vcf-m02
         sddc_manager:  { fqdn: kosten-vcf521-sddc.rtolab.local, ip: 192.168.114.55 }
