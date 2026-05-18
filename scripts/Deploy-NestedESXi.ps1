@@ -194,83 +194,93 @@ $pgId  = $pg.Id
 $hostNames = $availableHosts.Name
 Disconnect-VIServer * -Confirm:$false -Force | Out-Null
 
-# ---- 平行部 (per version) -------------------------------------------------
+# ---- 平行部 (一個版本一個 runspace, 版本內 4 台 sequential) ----------------
+# 為什麼分組: PowerCLI 的 Get-OvfConfiguration 對同一 OVA 並發呼叫會出
+# "Object reference not set" 競態. 分組後同 OVA 的 4 台 sequential, 不衝突.
 Write-Host ""
-Write-Host "Starting parallel deploy (ThrottleLimit=$ThrottleLimit)..." -ForegroundColor Cyan
-$deployList | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
-    $item = $_
-    $ctx  = $using:vcCtx
-    $rpId = $using:rpId
-    $dsId = $using:dsId
-    $pgId = $using:pgId
+Write-Host "Starting per-version parallel deploy (3 versions || , 4 VMs/version sequential)..." -ForegroundColor Cyan
+
+$grouped = $deployList | Group-Object Version
+$grouped | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+    $group   = $_
+    $version = $group.Name
+    $items   = $group.Group
+    $ctx     = $using:vcCtx
+    $rpId    = $using:rpId
+    $dsId    = $using:dsId
+    $pgId    = $using:pgId
     $hostNames = $using:hostNames
 
     Import-Module VMware.VimAutomation.Core
     Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false -Scope Session | Out-Null
 
-    function Write-DeployLog($msg, $color='White') {
+    function Write-DeployLog($msg, $color='White', $vmName='') {
         $ts = (Get-Date).ToString('HH:mm:ss')
-        Write-Host "[$ts][$($item.Version)/$($item.VMName)] $msg" -ForegroundColor $color
+        $tag = if ($vmName) { "$version/$vmName" } else { $version }
+        Write-Host "[$ts][$tag] $msg" -ForegroundColor $color
     }
 
+    Write-DeployLog "connecting vCenter (1 session for $($items.Count) VMs)..."
     try {
-        Write-DeployLog "connecting vCenter..."
         Connect-VIServer $ctx.Fqdn -User $ctx.User -Password $ctx.Pw -ErrorAction Stop | Out-Null
-
-        if (Get-VM -Name $item.VMName -ErrorAction SilentlyContinue) {
-            Write-DeployLog "VM 已存在, skip" 'DarkYellow'
-            return
-        }
-
-        $rp = Get-VIObjectByVIView -MORef $rpId
-        $ds = Get-VIObjectByVIView -MORef $dsId
-        $pg = Get-VIObjectByVIView -MORef $pgId
-        $vmhost = Get-VMHost -Name ($hostNames | Get-Random) -ErrorAction Stop
-
-        Write-DeployLog "loading OVF config..."
-        $ovf = Get-OvfConfiguration -Ovf $item.OvaPath
-        # 新 OVA 格式: guestinfo 是一個物件容器, sub-properties (hostname/ipaddress/...) 各自有 .Value
-        $gi = $ovf.Common.guestinfo
-        $gi.hostname.Value   = $item.Hostname
-        $gi.ipaddress.Value  = $item.MgmtIp
-        $gi.netmask.Value    = $item.Netmask
-        $gi.gateway.Value    = $item.Gateway
-        $gi.vlan.Value       = [string]$item.MgmtVlan      # nested ESXi 自己 tag 114 (underlay=trunk)
-        $gi.dns.Value        = $item.Dns
-        $gi.domain.Value     = $item.Domain
-        $gi.ntp.Value        = $item.Ntp
-        $gi.password.Value   = $item.EsxiPw
-        $gi.ssh.Value        = 'True'
-        if ($gi.PSObject.Properties['createvmfs']) { $gi.createvmfs.Value = 'False' }
-        # NetworkMapping: 全部 -> trunk portgroup
-        $ovf.NetworkMapping.VM_Network.Value = $pg
-
-        Write-DeployLog "Import-VApp (thin, ~1GB OVA upload)..."
-        $vapp = Import-VApp -Source $item.OvaPath -OvfConfiguration $ovf `
-                            -Name $item.VMName -VMHost $vmhost -Datastore $ds `
-                            -DiskStorageFormat Thin -Location $rp -Force -ErrorAction Stop
-
-        $vm = if ($vapp -is [VMware.VimAutomation.ViCore.Types.V1.Inventory.VApp]) {
-            $vapp | Get-VM
-        } else { $vapp }
-
-        # 拉大 disks (cache 100GB / capacity 700GB, thin 實際不佔)
-        $disks = $vm | Get-HardDisk | Sort-Object Name
-        if ($disks.Count -ge 3) {
-            try {
-                if ($disks[1].CapacityGB -lt 100) { Set-HardDisk -HardDisk $disks[1] -CapacityGB 100 -Confirm:$false | Out-Null; Write-DeployLog "  disk2 -> 100GB (cache)" }
-                if ($disks[2].CapacityGB -lt 700) { Set-HardDisk -HardDisk $disks[2] -CapacityGB 700 -Confirm:$false | Out-Null; Write-DeployLog "  disk3 -> 700GB (capacity)" }
-            } catch { Write-DeployLog "  disk resize failed: $($_.Exception.Message)" 'Yellow' }
-        }
-
-        Write-DeployLog "powering on..."
-        $vm | Start-VM -Confirm:$false | Out-Null
-        Write-DeployLog "✓ done" 'Green'
     } catch {
-        Write-DeployLog "FAILED: $($_.Exception.Message)" 'Red'
-    } finally {
-        Disconnect-VIServer * -Confirm:$false -Force -ErrorAction SilentlyContinue | Out-Null
+        Write-DeployLog "connect failed: $($_.Exception.Message)" 'Red'
+        return
     }
+
+    $rp = Get-VIObjectByVIView -MORef $rpId
+    $ds = Get-VIObjectByVIView -MORef $dsId
+    $pg = Get-VIObjectByVIView -MORef $pgId
+
+    foreach ($item in $items) {
+        try {
+            if (Get-VM -Name $item.VMName -ErrorAction SilentlyContinue) {
+                Write-DeployLog "VM exists, skip" 'DarkYellow' $item.VMName
+                continue
+            }
+            $vmhost = Get-VMHost -Name ($hostNames | Get-Random) -ErrorAction Stop
+
+            Write-DeployLog "loading OVF config + setting guestinfo..." 'White' $item.VMName
+            $ovf = Get-OvfConfiguration -Ovf $item.OvaPath
+            $gi = $ovf.Common.guestinfo
+            $gi.hostname.Value   = $item.Hostname
+            $gi.ipaddress.Value  = $item.MgmtIp
+            $gi.netmask.Value    = $item.Netmask
+            $gi.gateway.Value    = $item.Gateway
+            $gi.vlan.Value       = [string]$item.MgmtVlan
+            $gi.dns.Value        = $item.Dns
+            $gi.domain.Value     = $item.Domain
+            $gi.ntp.Value        = $item.Ntp
+            $gi.password.Value   = $item.EsxiPw
+            $gi.ssh.Value        = 'True'
+            if ($gi.PSObject.Properties['createvmfs']) { $gi.createvmfs.Value = 'False' }
+            $ovf.NetworkMapping.VM_Network.Value = $pg
+
+            Write-DeployLog "Import-VApp (thin, ~1GB upload)..." 'White' $item.VMName
+            $vapp = Import-VApp -Source $item.OvaPath -OvfConfiguration $ovf `
+                                -Name $item.VMName -VMHost $vmhost -Datastore $ds `
+                                -DiskStorageFormat Thin -Location $rp -Force -ErrorAction Stop
+
+            $vm = if ($vapp -is [VMware.VimAutomation.ViCore.Types.V1.Inventory.VApp]) { $vapp | Get-VM } else { $vapp }
+
+            $disks = $vm | Get-HardDisk | Sort-Object Name
+            if ($disks.Count -ge 3) {
+                try {
+                    if ($disks[1].CapacityGB -lt 100) { Set-HardDisk -HardDisk $disks[1] -CapacityGB 100 -Confirm:$false | Out-Null; Write-DeployLog "  disk2 -> 100GB (cache)" 'DarkGray' $item.VMName }
+                    if ($disks[2].CapacityGB -lt 700) { Set-HardDisk -HardDisk $disks[2] -CapacityGB 700 -Confirm:$false | Out-Null; Write-DeployLog "  disk3 -> 700GB (capacity)" 'DarkGray' $item.VMName }
+                } catch { Write-DeployLog "  disk resize failed: $($_.Exception.Message)" 'Yellow' $item.VMName }
+            }
+
+            Write-DeployLog "powering on..." 'White' $item.VMName
+            $vm | Start-VM -Confirm:$false | Out-Null
+            Write-DeployLog "✓ done" 'Green' $item.VMName
+        } catch {
+            Write-DeployLog "FAILED: $($_.Exception.Message)" 'Red' $item.VMName
+        }
+    }
+
+    Disconnect-VIServer * -Confirm:$false -Force -ErrorAction SilentlyContinue | Out-Null
+    Write-DeployLog "version $version deploy loop done" 'Cyan'
 }
 
 Write-Host ""

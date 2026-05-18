@@ -172,12 +172,14 @@ hosts_by_version:
 # OVA 檔放在 E:\<version>\, 由 Deploy-NestedESXi.ps1 直接 Import-VApp 到外層 vC
 artifacts:
   # VCF 9.0 (Nested ESXi 9.0.2 + VCF Installer 9.0.2)
+  # 原 OVA 是 vmx-20, SELAB-Cluster (ESXi 7.0u3) 不收 -> 用 scripts/Convert-OvaHwVersion.ps1
+  # 降版本成 vmx-19 的副本
   vcf_90:
-    nested_esxi_ova:   E:/9.0/Nested_ESXi9.0.2_Appliance_Template_v1.0.ova
+    nested_esxi_ova:   E:/9.0/Nested_ESXi9.0.2_Appliance_Template_v1.0-vmx19.ova
     vcf_installer_ova: E:/9.0/VCF-SDDC-Manager-Appliance-9.0.2.0.25151285.ova
   # VCF 9.1 (Nested ESXi 9.1.0 + VCF Installer 9.1.0)
   vcf_91:
-    nested_esxi_ova:   E:/9.1/Nested_ESXi9.1.0.0_Appliance_Template_v1.0.ova
+    nested_esxi_ova:   E:/9.1/Nested_ESXi9.1.0.0_Appliance_Template_v1.0-vmx19.ova
     vcf_installer_ova: E:/9.1/VCF-SDDC-Manager-Appliance-9.1.0.0.25371088.ova
     # (升級 path 用 — 已有 9.0/9.1 OVA 可直接部署, 這兩個檔保留作 day-2 升級)
     # esxi_iso:          E:/9.1/VMware-VMvisor-Installer-9.1.0.0.25370933.x86_64.iso
