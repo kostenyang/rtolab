@@ -44,3 +44,9 @@ batch-*.csv
 layer2-bringup/generated-bringup.json
 layer2-bringup/generated-bringup.json.broken.json
 layer2-bringup/smoketest-*.json
+layer2-bringup/vcf*/generated-bringup.json
+layer2-bringup/vcf*/smoketest-*.json
+
+# VM console screenshots (debug artifacts, not source)
+*.png
+
