@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    把 rtolab.local zone 的 A 記錄 push 到 AD/DNS (kosten.rtolab.local @ 192.168.114.200).
-    一次寫一個版本的 mgmt VMs + 4 台 ESXi + shared (kosten / jumpbox / installer 三件).
+    把 rtolab.local zone 的 A + PTR 記錄 push 到 AD/DNS
+    (kosten.rtolab.local @ 192.168.114.200). 一次寫一個版本的 mgmt VMs +
+    4 台 ESXi + shared (kosten / jumpbox / installer 三件).
 
 .DESCRIPTION
     從 inventory/lab.yaml 讀:
@@ -147,6 +148,41 @@ if (-not $zone) {
     }
 }
 
+# ---- 反向 zones: 依 IP /24 算出 in-addr.arpa zone, 缺的建 -------------------
+function Get-ReverseZoneName {
+    param([string]$Ip)
+    $o = $Ip.Split('.')
+    return "$($o[2]).$($o[1]).$($o[0]).in-addr.arpa"
+}
+function Get-PtrName {
+    param([string]$Ip)
+    # PTR 的 owner 是末段 octet, parent zone 是 in-addr.arpa
+    return ($Ip.Split('.'))[3]
+}
+
+$reverseZones = $records | ForEach-Object { Get-ReverseZoneName $_.Ip } | Sort-Object -Unique
+Write-Host ""
+Write-Host "需要的 reverse zones: $($reverseZones -join ', ')" -ForegroundColor Cyan
+foreach ($rz in $reverseZones) {
+    $existing = $null
+    try { $existing = Get-DnsServerZone -Name $rz @zoneArgs -ErrorAction Stop } catch {}
+    if (-not $existing) {
+        # 從 zone name 倒推 NetworkId (e.g. 114.168.192.in-addr.arpa -> 192.168.114.0/24)
+        $parts = $rz.Replace('.in-addr.arpa','').Split('.')
+        [array]::Reverse($parts)
+        $netId = "$($parts -join '.').0/24"
+        Write-Host "  reverse zone $rz 不存在, 建 ($netId, Primary, AD-integrated)..." -ForegroundColor Yellow
+        if ($PSCmdlet.ShouldProcess($rz, 'Add-DnsServerPrimaryZone (reverse)')) {
+            Add-DnsServerPrimaryZone -NetworkId $netId -ReplicationScope Domain -DynamicUpdate Secure @zoneArgs
+        }
+    } else {
+        Write-Host "  reverse zone ${rz}: 已存在" -ForegroundColor DarkGray
+    }
+}
+
+# ---- 套用 A + PTR ---------------------------------------------------------
+Write-Host ""
+Write-Host "Forward A 記錄:" -ForegroundColor Cyan
 foreach ($r in $records) {
     $existing = $null
     try {
@@ -172,6 +208,39 @@ foreach ($r in $records) {
     }
 }
 
+Write-Host ""
+Write-Host "Reverse PTR 記錄:" -ForegroundColor Cyan
+foreach ($r in $records) {
+    $rzName  = Get-ReverseZoneName $r.Ip
+    $ptrName = Get-PtrName $r.Ip
+    $expectedPtr = "$($r.Name).$ZoneName."   # FQDN with trailing dot for PTR data
+
+    $existing = $null
+    try {
+        $existing = Get-DnsServerResourceRecord -ZoneName $rzName -Name $ptrName -RRType Ptr @zoneArgs -ErrorAction Stop
+    } catch {}
+
+    if ($existing) {
+        $curPtr = $existing.RecordData.PtrDomainName
+        if ($curPtr -eq $expectedPtr) {
+            Write-Host "  [skip] $ptrName.$rzName -> $expectedPtr" -ForegroundColor DarkGray
+            continue
+        }
+        Write-Host "  [update] $ptrName.$rzName : $curPtr -> $expectedPtr" -ForegroundColor Yellow
+        if ($PSCmdlet.ShouldProcess("$ptrName.$rzName -> $expectedPtr", 'Remove+Add PTR record')) {
+            Remove-DnsServerResourceRecord -ZoneName $rzName -InputObject $existing -Force @zoneArgs
+            Add-DnsServerResourceRecordPtr -ZoneName $rzName -Name $ptrName -PtrDomainName $expectedPtr @zoneArgs
+        }
+    } else {
+        Write-Host "  [add]  $ptrName.$rzName -> $expectedPtr" -ForegroundColor Green
+        if ($PSCmdlet.ShouldProcess("$ptrName.$rzName -> $expectedPtr", 'Add PTR record')) {
+            Add-DnsServerResourceRecordPtr -ZoneName $rzName -Name $ptrName -PtrDomainName $expectedPtr @zoneArgs
+        }
+    }
+}
+
 if ($cimSess) { Remove-CimSession $cimSess }
 Write-Host ""
-Write-Host "完成. 驗證:  Resolve-DnsName -Server $DnsServer sddc-mgr.$ZoneName" -ForegroundColor Cyan
+Write-Host "完成. 驗證 (forward+reverse):" -ForegroundColor Cyan
+Write-Host "  Resolve-DnsName -Server $DnsServer sddc-mgr.$ZoneName"
+Write-Host "  Resolve-DnsName -Server $DnsServer 192.168.114.35 -Type PTR"
