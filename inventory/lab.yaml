@@ -58,10 +58,11 @@ infra:
 # 已佔用 (不可動): pg113 / pg119 / pg120 (Sean 的 lab)
 # 本 lab 分配: pg114 = mgmt, pg115 = vmotion, pg116 = vsan, pg117 = overlay
 network:
-  mgmt:    { vlan: 114, cidr: 192.168.114.0/24, gateway: 192.168.114.1, portgroup: selab-dswitch-pg114 }
-  vmotion: { vlan: 115, cidr: 192.168.115.0/24, gateway: 192.168.115.1, portgroup: selab-dswitch-pg115 }
-  vsan:    { vlan: 116, cidr: 192.168.116.0/24, gateway: 192.168.116.1, portgroup: selab-dswitch-pg116 }
-  overlay: { vlan: 117, cidr: 192.168.117.0/24, gateway: 192.168.117.1, portgroup: selab-dswitch-pg117 }
+  # 註: SELAB underlay 的 gateway 是 .254 (跟 172.16.10.254 同 convention), 不是 .1
+  mgmt:    { vlan: 114, cidr: 192.168.114.0/24, gateway: 192.168.114.254, portgroup: selab-dswitch-pg114 }
+  vmotion: { vlan: 115, cidr: 192.168.115.0/24, gateway: 192.168.115.254, portgroup: selab-dswitch-pg115 }
+  vsan:    { vlan: 116, cidr: 192.168.116.0/24, gateway: 192.168.116.254, portgroup: selab-dswitch-pg116 }
+  overlay: { vlan: 117, cidr: 192.168.117.0/24, gateway: 192.168.117.254, portgroup: selab-dswitch-pg117 }
 
 # -------- VCF Management Domain (per-version, IP+FQDN 三組互不重疊) --------
 vcf:
