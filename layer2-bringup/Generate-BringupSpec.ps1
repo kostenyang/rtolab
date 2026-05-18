@@ -1,13 +1,19 @@
 <#
 .SYNOPSIS
-    讀 inventory/lab.yaml + 解密 secrets/lab.yaml, 套用 vcf91-bringup.template.json,
+    讀 inventory/lab.yaml + 解密 secrets/lab.yaml, 套用對應版本的 bring-up template,
     輸出可以直接 POST 到 VCF Installer 的 bring-up spec JSON.
+
+.PARAMETER Version
+    VCF 版本. 接受 '9.0' 或 '9.1'. 決定使用 vcf90-bringup.template.json
+    還是 vcf91-bringup.template.json, 也決定 -LabMode 套用的 workaround 形態
+    (9.0 用散在各 spec 內的 skip 旗標; 9.1 用 skipChecks 陣列).
+    預設讀 inventory 的 vcf.version, 沒有就 fallback 到 '9.1'.
 
 .PARAMETER InventoryFile
     inventory/lab.yaml 路徑. 預設自動找 repo root.
 
 .PARAMETER TemplateFile
-    JSON template. 預設同目錄的 vcf91-bringup.template.json.
+    JSON template. 預設依 -Version 挑檔.
 
 .PARAMETER OutputFile
     輸出的填好 JSON. 預設 ./generated-bringup.json (在 .gitignore 裡, 不會進 git).
@@ -19,20 +25,25 @@
     如果你已經 source scripts/load-secrets.sh, 加這個就不會再嘗試解密.
 
 .EXAMPLE
-    # 在 Linux automation host 上
+    # VCF 9.1 (預設) — 在 Linux automation host 上
     source ../scripts/load-secrets.sh
     pwsh ./Generate-BringupSpec.ps1 -SecretsAlreadyLoaded -LabMode
+
+.EXAMPLE
+    # VCF 9.0
+    pwsh ./Generate-BringupSpec.ps1 -Version 9.0 -LabMode
 
 .NOTES
     Template 用 {{ var.path }} 與 | filter 來表達取值, 這支腳本實作:
       - {{ a.b.c }}           取 yaml/env 巢狀值
       - {{ list[0].field }}   取陣列元素
-      - | default 'x'         取不到時的預設
+      - | default 'x'         取不到時的預設 (literal 字串, 含單引號)
       - | splitDot 0          按 '.' 切後取第 N 段 (拿 hostname 不要 FQDN)
 #>
 
 [CmdletBinding()]
 param(
+    [ValidateSet('9.0','9.1','')] [string] $Version = '',
     [string] $InventoryFile,
     [string] $TemplateFile,
     [string] $OutputFile = './generated-bringup.json',
@@ -45,10 +56,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $here '..')
 
 if (-not $InventoryFile) { $InventoryFile = Join-Path $repoRoot 'inventory/lab.yaml' }
-if (-not $TemplateFile)  { $TemplateFile  = Join-Path $here    'vcf91-bringup.template.json' }
-
 if (-not (Test-Path $InventoryFile)) { throw "inventory 找不到: $InventoryFile" }
-if (-not (Test-Path $TemplateFile))  { throw "template 找不到: $TemplateFile" }
 
 #--- 載入 powershell-yaml (沒裝就裝) ---------------------------------------
 if (-not (Get-Module -ListAvailable powershell-yaml)) {
@@ -59,6 +67,20 @@ Import-Module powershell-yaml
 
 #--- 讀 inventory ----------------------------------------------------------
 $inv = Get-Content -Raw $InventoryFile | ConvertFrom-Yaml
+
+#--- 解析 -Version: 參數 > inventory > 預設 9.1 ----------------------------
+if (-not $Version) {
+    $Version = if ($inv.vcf.version) { [string]$inv.vcf.version } else { '9.1' }
+}
+if ($Version -notin @('9.0','9.1')) { throw "Version 必須是 9.0 或 9.1, 收到: $Version" }
+Write-Host "VCF 版本: $Version"
+
+if (-not $TemplateFile) {
+    $tplName = if ($Version -eq '9.0') { 'vcf90-bringup.template.json' } else { 'vcf91-bringup.template.json' }
+    $TemplateFile = Join-Path $here $tplName
+}
+if (-not (Test-Path $TemplateFile)) { throw "template 找不到: $TemplateFile" }
+Write-Host "使用 template: $TemplateFile"
 
 #--- 讀 secrets ------------------------------------------------------------
 $secrets = @{}
@@ -72,9 +94,16 @@ if ($SecretsAlreadyLoaded) {
         nsx              = @{ admin_pw        = $env:NSX_ADMIN_PW }
         deploy_defaults  = @{ vm_root_pw      = $env:VM_ROOT_PW }
     }
+    # 9.0 額外需要 VCF Operations 三個 appliance 的 root/admin 密碼
+    if ($Version -eq '9.0') {
+        $secrets.operations = @{
+            root_pw  = $env:VCFOPS_ROOT_PW
+            admin_pw = $env:VCFOPS_ADMIN_PW
+        }
+    }
     foreach ($k1 in $secrets.Keys) {
         foreach ($k2 in $secrets[$k1].Keys) {
-            if (-not $secrets[$k1][$k2]) { throw "Env 缺值: $k1.$k2 (沒 source load-secrets.sh ?)" }
+            if (-not $secrets[$k1][$k2]) { throw "Env 缺值: $k1.$k2 (沒 source load-secrets.sh ? 9.0 需多 source VCFOPS_*)" }
         }
     }
 } else {
@@ -161,20 +190,39 @@ try {
 
 #--- Lab workarounds ------------------------------------------------------
 if ($LabMode) {
-    Write-Host "套用 -LabMode workarounds..."
-    if (-not $parsed.PSObject.Properties['skipChecks']) {
-        $parsed | Add-Member -NotePropertyName skipChecks -NotePropertyValue @()
-    }
-    $parsed.skipChecks = @(
-        'NESTED_CPU_CHECK',
-        'NIC_COUNT_CHECK',
-        'MIN_HOST_CHECK',
-        'VSAN_ESA_HCL_CHECK',
-        'ESX_THUMBPRINT_CHECK'
-    )
-    # vSAN ESA 在 nested 必要時關掉 (William Lam 9.1 lab post 的做法之一)
-    if ($parsed.vsanSpec.esaConfig.enabled -eq $true) {
-        Write-Host "  (留 vSAN ESA enabled = true, 改用 skipChecks 繞 HCL)"
+    Write-Host "套用 -LabMode workarounds (Version=$Version)..."
+    if ($Version -eq '9.1') {
+        # 9.1: 用 skipChecks 陣列繞 nested CPU / NIC / HCL / thumbprint
+        if (-not $parsed.PSObject.Properties['skipChecks']) {
+            $parsed | Add-Member -NotePropertyName skipChecks -NotePropertyValue @()
+        }
+        $parsed.skipChecks = @(
+            'NESTED_CPU_CHECK',
+            'NIC_COUNT_CHECK',
+            'MIN_HOST_CHECK',
+            'VSAN_ESA_HCL_CHECK',
+            'ESX_THUMBPRINT_CHECK'
+        )
+        if ($parsed.vsanSpec.esaConfig.enabled -eq $true) {
+            Write-Host "  (留 vSAN ESA enabled = true, 改用 skipChecks 繞 HCL)"
+        }
+    } else {
+        # 9.0: 沒有 skipChecks 陣列; 控制旗標散在各 spec 內
+        $parsed.skipEsxThumbprintValidation = $true
+        $parsed.skipGatewayPingValidation   = $true
+        # nested 強烈建議關 ESA (走 OSA), 9.0 ESA 對 HCL 較嚴
+        if ($parsed.datastoreSpec -and $parsed.datastoreSpec.vsanSpec -and $parsed.datastoreSpec.vsanSpec.esaConfig) {
+            if ($parsed.datastoreSpec.vsanSpec.esaConfig.enabled -eq $true) {
+                Write-Host "  vSAN ESA -> false (nested lab)"
+                $parsed.datastoreSpec.vsanSpec.esaConfig.enabled = $false
+            }
+        }
+        # 把 hostSpecs[].sslThumbprint 的 'REPLACE_OR_SKIP' 拿掉 (配 skipEsxThumbprintValidation=true)
+        foreach ($h in $parsed.hostSpecs) {
+            if ($h.sslThumbprint -eq 'REPLACE_OR_SKIP') {
+                $h.PSObject.Properties.Remove('sslThumbprint')
+            }
+        }
     }
 }
 

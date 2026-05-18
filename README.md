@@ -1,6 +1,7 @@
-# VCF 9 Lab — Infrastructure as Code
+# VCF 9 Lab — Infrastructure as Code (rto.lab / SELAB-Cluster)
 
 整個 VCF 9 lab 環境的「重建檔」。每層各自獨立、能重跑、不依賴某台機器的記憶。
+Layer 2 同時支援 **VCF 9.0** 與 **9.1** bring-up，靠 `-Version` 切換 (見 [layer2-bringup/README.md](./layer2-bringup/README.md))。
 
 > **快速查腳本**: [SCRIPTS.md](./SCRIPTS.md) — 所有可執行檔的功能對照表 + 典型工作流
 
@@ -18,10 +19,11 @@
 │   └── load-secrets.sh
 ├── layer1-nested/              # Nested ESXi 部署 + 部署前準備
 │   └── Prepare-NestedESXi.ps1
-├── layer2-bringup/             # VCF Installer JSON + 推送腳本
-│   ├── New-VcfLab.ps1          #   一鍵 wrapper
+├── layer2-bringup/             # VCF Installer JSON + 推送腳本 (9.0 + 9.1)
+│   ├── New-VcfLab.ps1          #   一鍵 wrapper, 接 -Version 9.0|9.1
 │   ├── Generate-BringupSpec.ps1 / Submit-Bringup.ps1
-│   ├── vcf91-bringup.template.json
+│   ├── vcf90-bringup.template.json   # VCF 9.0 spec (含 Operations / Fleet / Collector)
+│   ├── vcf91-bringup.template.json   # VCF 9.1 spec (skipChecks 陣列)
 │   └── timeout-tuning.md       #   慢速 lab 的 domainmanager timeout workaround
 ├── layer3-postbringup/         # SDDC Manager API: commission / workload domain / NSX (TODO)
 │   └── vcf-operations-automation-deploy-troubleshooting.md  # M02 部署故障排除紀錄
@@ -42,7 +44,7 @@
 | Layer | 狀態 | 內容 | README |
 |---|---|---|---|
 | 1 Nested infra | 部分 | `Prepare-NestedESXi.ps1` (vSAN/LSOM advanced settings) ready;`Deploy-NestedESXi.ps1` 待補 | [layer1-nested/](./layer1-nested/README.md) |
-| 2 VCF Bring-up | scaffold | template/generator/submitter ready,等 9.1 OpenAPI 對齊欄位;timeout workaround 已記錄 | [layer2-bringup/](./layer2-bringup/README.md) |
+| 2 VCF Bring-up | scaffold | **9.0 / 9.1 雙 template** ready,9.0 含 VCF Operations 三件套;timeout workaround 已記錄 | [layer2-bringup/](./layer2-bringup/README.md) |
 | 3 Post-bringup | 部分 | scripts 待補;M02 VCF Operations/Automation 部署故障排除紀錄已寫入 | [layer3-postbringup/](./layer3-postbringup/README.md) |
 | 4 Day-2 ops | ✅ | nested ESXi 9.0 → 9.1 升級 + vSAN/LSOM workaround 已實作 | [layer4-day2/](./layer4-day2/README.md) |
 
@@ -67,7 +69,8 @@ source /opt/vcf-lab/.venv/bin/activate          # Python venv
 pwsh ./layer1-nested/Prepare-NestedESXi.ps1
 
 # 2. Layer 2: VCF bring-up (腳本自己 sops 解密 secrets，不需先 source)
-pwsh ./layer2-bringup/New-VcfLab.ps1 -VcfInstaller https://192.168.114.5
+#    - inventory 的 vcf.version 決定走 9.0 還是 9.1; -Version 可顯式覆蓋
+pwsh ./layer2-bringup/New-VcfLab.ps1 -VcfInstaller https://192.168.114.5 -Version 9.0
 
 # 4. Layer 4: day-2 (例: 批次升級 nested ESXi 到 9.1)
 pwsh ./layer4-day2/Run-BatchUpgrade.ps1

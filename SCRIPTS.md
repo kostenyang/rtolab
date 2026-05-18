@@ -42,22 +42,26 @@
 
 ---
 
-## Layer 2 — VCF 9.1 Auto Bring-up
+## Layer 2 — VCF 9.0 / 9.1 Auto Bring-up
 
-位置: `layer2-bringup/`。把 VCF Installer 接到 4 台 nested ESXi,自動 bring up Management Domain。
+位置: `layer2-bringup/`。把 VCF Installer 接到 4 台 nested ESXi,自動 bring up Management Domain。同一份 inventory 同時支援 9.0 與 9.1,靠 `-Version` 切換。
 
 | 檔案 | 功能 | 跑法 |
 |---|---|---|
-| `vcf91-bringup.template.json` | VCF Installer JSON template, 用 `{{ var.path \| filter }}` 從 inventory 取值 | 不直接編輯 |
-| `Generate-BringupSpec.ps1` | 讀 inventory + sops 自解密 secrets, 渲染 template -> `generated-bringup.json`. 支援 `-LabMode` 注入 skipChecks | `pwsh Generate-BringupSpec.ps1 -LabMode` |
-| `Submit-Bringup.ps1` | 推 JSON 給 VCF Installer API. 先 validation 再 bring-up, 每 60 秒 poll | `pwsh Submit-Bringup.ps1 -VcfInstaller https://<x> -SpecFile <json>` |
-| `New-VcfLab.ps1` | 一鍵 wrapper: 產 spec -> validate -> 你打 YES -> bring-up + poll | `pwsh New-VcfLab.ps1 -VcfInstaller https://<x>` |
+| `vcf90-bringup.template.json` | **VCF 9.0** template:含 `vcfOperationsSpec` / `vcfOperationsFleetManagementSpec` / `vcfOperationsCollectorSpec`,`datastoreSpec.vsanSpec`,`networkSpec.includeIpAddressRanges` | 不直接編輯 |
+| `vcf91-bringup.template.json` | **VCF 9.1** template:`skipChecks` 陣列,頂層 `vsanSpec`,精簡 NSX/Operations | 不直接編輯 |
+| `Generate-BringupSpec.ps1` | 讀 inventory + sops 自解密 secrets, 渲染對應版本 template -> `generated-bringup.json`. 支援 `-Version 9.0\|9.1`、`-LabMode` | `pwsh Generate-BringupSpec.ps1 -Version 9.0 -LabMode` |
+| `Submit-Bringup.ps1` | 推 JSON 給 VCF Installer API. 先 validation 再 bring-up, 每 60 秒 poll. 9.0 / 9.1 共用 (`/v1/sddcs`) | `pwsh Submit-Bringup.ps1 -VcfInstaller https://<x> -SpecFile <json>` |
+| `New-VcfLab.ps1` | 一鍵 wrapper: 產 spec -> validate -> 你打 YES -> bring-up + poll. 接 `-Version` 透傳給 generator | `pwsh New-VcfLab.ps1 -VcfInstaller https://<x> -Version 9.0` |
 
 > Layer 2 腳本會自己呼叫 sops 解密 secrets,**不需要** 先 `source load-secrets.sh`。
 
-### -LabMode 預設注入的 skipChecks
+### -LabMode 行為依版本不同
 
-`NESTED_CPU_CHECK`, `NIC_COUNT_CHECK`, `MIN_HOST_CHECK`, `VSAN_ESA_HCL_CHECK`, `ESX_THUMBPRINT_CHECK`
+| Version | -LabMode 做的事 |
+|---|---|
+| **9.1** | 在 spec 加 `skipChecks`: `NESTED_CPU_CHECK` / `NIC_COUNT_CHECK` / `MIN_HOST_CHECK` / `VSAN_ESA_HCL_CHECK` / `ESX_THUMBPRINT_CHECK` |
+| **9.0** | 設 `skipEsxThumbprintValidation = true`、`skipGatewayPingValidation = true`、強制 `datastoreSpec.vsanSpec.esaConfig.enabled = false`、拔掉 `hostSpecs[].sslThumbprint` 的 placeholder |
 
 (正式環境加 `-SkipLabMode` 不要跳)
 
@@ -105,26 +109,37 @@
 | 檔案 | 用途 |
 |---|---|
 | `lab.yaml` | lab 全部拓樸 (明文, 非敏感): outer vCenter / AD / 4 台 nested ESXi / network VLAN/CIDR / artifact 路徑 |
-| `secrets/lab.example.yaml` | 密碼欄位範本. `cp lab.example.yaml lab.yaml` -> 填值 -> `sops -e -i lab.yaml` 加密 |
+| `secrets/lab.example.yaml` | 密碼欄位範本. `cp lab.example.yaml lab.yaml` -> 填值 -> `sops -e -i lab.yaml` 加密. **9.0 額外需** `operations.{root_pw,admin_pw}` (VCF Operations 三件套用) |
 | `secrets/lab.yaml` | 實際密碼檔 (sops + age 加密後才 commit). 解密後的暫存檔被 `.gitignore` 擋掉 |
 
 ---
 
-## 典型工作流 (從 4 台 9.0 nested 到 VCF 9.1 起來)
+## 典型工作流 A — 直接走 VCF 9.0 bring-up (推薦, 9.0.1+ 已不需 9.0.2 → LCM 升級路徑)
 
 ```
 0. bootstrap automation host: bash scripts/bootstrap-automation-host.sh
-1. push vcf9.1-lab 到 GitHub
-2. 編 inventory/lab.yaml + sops 加密 inventory/secrets/lab.yaml
-3. Layer 1/4 — 對 4 台 nested ESXi (在執行機器上, 要有 PowerCLI 13):
-   pwsh .\layer4-day2\Run-BatchUpgrade.ps1               # 升 9.1
+1. push 到 GitHub
+2. 編 inventory/lab.yaml (確認 vcf.version: "9.0") + sops 加密 inventory/secrets/lab.yaml
+   (9.0 多填 operations.{root_pw,admin_pw})
+3. Layer 1 — 對 4 台 nested ESXi 9.0 (在執行機器上, 要有 PowerCLI 13):
    pwsh .\layer1-nested\Prepare-NestedESXi.ps1           # vSAN/LSOM lab workaround
-4. Layer 2 — VCF bring-up:
-   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://<installer>
-   - 先 validation, 看哪些欄位不對 (William Lam 9.1 schema 對齊)
-   - 過了打 YES 真的 bring-up
+4. Layer 2 — VCF 9.0 bring-up:
+   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://<installer> -Version 9.0
+   - 先 validation, 看哪些欄位不對
+   - 過了打 YES 真的 bring-up (約 1-2 小時, 含 Operations 三件套部署)
    - 慢速 lab 記得先做 layer2-bringup/timeout-tuning.md 的 timeout 調整
 5. Layer 3 (TODO) — postbringup commission / domain / NSX
+```
+
+## 典型工作流 B — 從 4 台 9.0 nested 升到 9.1 再 bring up VCF 9.1
+
+```
+0-2. 同上, 但 inventory 設 vcf.version: "9.1"
+3. Layer 4 → Layer 1:
+   pwsh .\layer4-day2\Run-BatchUpgrade.ps1               # 4 台 9.0 → 9.1
+   pwsh .\layer1-nested\Prepare-NestedESXi.ps1           # vSAN/LSOM lab workaround
+4. Layer 2 — VCF 9.1 bring-up:
+   pwsh .\layer2-bringup\New-VcfLab.ps1 -VcfInstaller https://<installer> -Version 9.1
 ```
 
 ---

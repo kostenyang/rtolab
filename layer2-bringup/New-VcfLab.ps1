@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    一鍵 VCF 9.1 lab bring-up — 從 inventory + secrets 一路打到 SDDC 起來.
+    一鍵 VCF lab bring-up (9.0 或 9.1) — 從 inventory + secrets 一路打到 SDDC 起來.
 
 .DESCRIPTION
     串起 layer2 的三步:
@@ -9,9 +9,14 @@
         3. (人類確認) -> Submit-Bringup.ps1   真的 bring-up + poll
 
     預設啟用 -LabMode (跳過 nested CPU / vSAN ESA HCL / NIC count 等檢查).
+    Version 從 -Version 參數讀, 沒給就讀 inventory 的 vcf.version, 還是沒有就預設 9.1.
 
 .PARAMETER VcfInstaller
     VCF Installer URL, 例如 https://192.168.114.5
+
+.PARAMETER Version
+    VCF 版本 ('9.0' 或 '9.1'). 不指定就讀 inventory/lab.yaml 的 vcf.version,
+    再 fallback 到 9.1. 9.0 與 9.1 使用不同的 JSON template + 不同的 lab workaround 形態.
 
 .PARAMETER NonInteractive
     跳過 validation 後的人類確認, 直接 bring-up. CI/CD 用.
@@ -20,14 +25,18 @@
     不套用 lab workaround (正式環境用).
 
 .EXAMPLE
-    # 在 automation host (10.0.0.65) 上:
-    source ../scripts/load-secrets.sh
+    # VCF 9.1 (預設)
     pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.5
+
+.EXAMPLE
+    # VCF 9.0
+    pwsh ./New-VcfLab.ps1 -VcfInstaller https://192.168.114.5 -Version 9.0
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)] [string] $VcfInstaller,
+    [ValidateSet('9.0','9.1','')] [string] $Version = '',
     [switch] $NonInteractive,
     [switch] $SkipLabMode
 )
@@ -41,6 +50,7 @@ Write-Host "=== Step 1/3: 產生 bring-up spec ==="
 $genArgs = @{
     OutputFile = (Join-Path $here 'generated-bringup.json')
 }
+if ($Version)        { $genArgs.Version = $Version }
 if (-not $SkipLabMode) { $genArgs.LabMode = $true }
 & (Join-Path $here 'Generate-BringupSpec.ps1') @genArgs
 

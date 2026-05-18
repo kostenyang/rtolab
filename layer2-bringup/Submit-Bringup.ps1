@@ -3,7 +3,7 @@
     把產好的 bring-up JSON 推到 VCF Installer API, 並 poll 狀態到完成 / 失敗.
 
 .PARAMETER VcfInstaller
-    VCF Installer URL, 例如 https://192.168.114.5 或 https://vcf-installer.lab.com
+    VCF Installer URL, 例如 https://192.168.114.5 或 https://vcf-installer.rto.lab
     (不需要結尾斜線)
 
 .PARAMETER SpecFile

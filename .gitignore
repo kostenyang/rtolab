@@ -36,3 +36,8 @@ batch-*.csv
 # ISO / depot (大檔不入 git)
 *.iso
 *-depot.zip
+
+# Layer 2 bring-up generated / 暫存 spec (含明文密碼, 絕對不能進 git)
+layer2-bringup/generated-bringup.json
+layer2-bringup/generated-bringup.json.broken.json
+layer2-bringup/smoketest-*.json
