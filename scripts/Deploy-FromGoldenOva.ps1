@@ -119,6 +119,28 @@ foreach ($v in $Versions) {
         $vm = Import-VApp -Source $ova -OvfConfiguration $ovfconfig -Name $vmName `
                           -VMHost $vmhost -Datastore $ds -DiskStorageFormat Thin -Location $rp -Force -ErrorAction Stop
 
+        # 直接寫 ExtraConfig guestinfo.* (我的 hand-built OVA OvfEnvironmentTransport 空,
+        # 所以 vAppConfig.Property 沒注入成 guestinfo; ExtraConfig 是最直接的 channel,
+        # vmware-rpctool 'info-get guestinfo.X' 會直接讀)
+        Write-Host "  setting ExtraConfig guestinfo.* (bypass OVF transport) ..."
+        $extras = @(
+            @{ Key='guestinfo.hostname';  Value=$h.fqdn },
+            @{ Key='guestinfo.ipaddress'; Value=$h.mgmt_ip },
+            @{ Key='guestinfo.netmask';   Value='255.255.255.0' },
+            @{ Key='guestinfo.gateway';   Value=$inv.network.mgmt.gateway },
+            @{ Key='guestinfo.vlan';      Value=[string]$inv.network.mgmt.vlan },
+            @{ Key='guestinfo.dns';       Value=$inv.infra.ad_dns.ip },
+            @{ Key='guestinfo.domain';    Value=$inv.lab.domain },
+            @{ Key='guestinfo.ntp';       Value=$inv.infra.ad_dns.ip }
+        )
+        $cfg = New-Object VMware.Vim.VirtualMachineConfigSpec -Property @{
+            ExtraConfig = $extras | ForEach-Object { New-Object VMware.Vim.OptionValue -Property $_ }
+        }
+        $task = $vm.ExtensionData.ReconfigVM_Task($cfg)
+        $tv = Get-View $task
+        while ($tv.Info.State -in 'running','queued') { Start-Sleep 1; $tv.UpdateViewData('Info.State','Info.Error') }
+        if ($tv.Info.State -ne 'success') { Write-Warning "  ExtraConfig reconfig: $($tv.Info.Error.LocalizedMessage)" }
+
         Write-Host "  moving into vApp '$vappName' ..."
         $deployVapp.ExtensionData.MoveIntoResourcePool(@($vm.ExtensionData.MoRef))
 
