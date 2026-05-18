@@ -1,8 +1,9 @@
 # =============================================================================
 #  VCF Lab inventory  —  明文, 非敏感資料
-#  密碼 / token 放 inventory/secrets/lab.yaml (sops 加密)
+#  密碼 / token 放 inventory/secrets/lab.yaml (本機, .gitignore'd)
 #
-#  同一份 inventory 支援 VCF 9.0 / 9.1 / 5.2.1 三個版本並存的 IP 規劃.
+#  同一份 inventory 支援 VCF 9.0 / 9.1 / 5.2.1 三個版本並存的 IP 規劃,
+#  三組 FQDN 也並存 (kosten-vcf90-* / kosten-vcf91-* / kosten-vcf521-*).
 #  Active version 由 vcf.version 或 cmdline -Version 決定. IP 配置見 ./ip-plan.md.
 # =============================================================================
 
@@ -50,56 +51,62 @@ network:
   vsan:    { vlan: 116, cidr: 192.168.116.0/24, gateway: 192.168.116.1, portgroup: selab-dswitch-pg116 }
   overlay: { vlan: 117, cidr: 192.168.117.0/24, gateway: 192.168.117.1, portgroup: selab-dswitch-pg117 }
 
-# -------- VCF Management Domain (per-version, 不會 IP 衝突) ----------------
+# -------- VCF Management Domain (per-version, IP+FQDN 三組互不重疊) --------
 vcf:
   # active version — Generate-BringupSpec.ps1 / New-VcfLab.ps1 的 -Version 會覆蓋
   version: "9.0"
 
-  # 每版本的 management domain 物件 (FQDN + IP)
-  # IP 配置依 inventory/ip-plan.md 的 /28-per-version 切法, 三套互不重疊
+  # 三組 FQDN 命名規則: kosten-vcf<vshort>-<role>.rtolab.local
+  #   vshort = 90 / 91 / 521 (對應 9.0 / 9.1 / 5.2.1)
+  #   role   = sddc / vc / nsx (VIP) / nsxn1 (NSX node 1) / inst (VCF Installer) /
+  #            cb (Cloud Builder, 5.2.1 only) / ops / fleet / coll (9.0 only) /
+  #            esx01..04 (ESXi mgmt vmk) / esx01-vmot..04-vmot / esx01-vsan..04-vsan
   versions:
 
-    # ---- VCF 9.1 (existing SELAB-Cluster 既有配置) -----------------------
+    # ---- VCF 9.1 -----------------------------------------------------------
     "9.1":
       management_domain:
         name: vcf-m02
-        sddc_manager:  { fqdn: sddc-mgr.rtolab.local, ip: 192.168.114.10 }
-        inner_vcenter: { fqdn: vc-mgmt.rtolab.local,  ip: 192.168.114.11 }
+        sddc_manager:  { fqdn: kosten-vcf91-sddc.rtolab.local,  ip: 192.168.114.10 }
+        inner_vcenter: { fqdn: kosten-vcf91-vc.rtolab.local,    ip: 192.168.114.11 }
         nsx_manager:
-          fqdn:      nsx-mgmt.rtolab.local        # cluster VIP FQDN
+          fqdn:      kosten-vcf91-nsx.rtolab.local              # cluster VIP FQDN
           vip:       192.168.114.13
-          node_fqdn: nsx-mgmt-01.rtolab.local     # 第一個 manager node
+          node_fqdn: kosten-vcf91-nsxn1.rtolab.local            # 第一個 manager node
           node_ip:   192.168.114.12
         tep_pool:
           cidr:        192.168.117.0/24
           gateway:     192.168.117.1
           range_start: 192.168.117.32
           range_end:   192.168.117.95
-        vcf_installer: { fqdn: vcf-inst-91.rtolab.local, ip: 192.168.114.5 }
+        vcf_installer: { fqdn: kosten-vcf91-inst.rtolab.local,  ip: 192.168.114.5 }
       vmotion_range: { start: 192.168.115.14, end: 192.168.115.17 }
       vsan_range:    { start: 192.168.116.14, end: 192.168.116.17 }
 
-    # ---- VCF 9.0 (新增, 含 VCF Operations 三件套) -------------------------
+    # ---- VCF 9.0 (含 VCF Operations 三件套) -------------------------------
     "9.0":
       management_domain:
         name: vcf-m02
-        sddc_manager:  { fqdn: sddc-mgr.rtolab.local, ip: 192.168.114.35 }
-        inner_vcenter: { fqdn: vc-mgmt.rtolab.local,  ip: 192.168.114.36 }
+        sddc_manager:  { fqdn: kosten-vcf90-sddc.rtolab.local,  ip: 192.168.114.35 }
+        inner_vcenter: { fqdn: kosten-vcf90-vc.rtolab.local,    ip: 192.168.114.36 }
         nsx_manager:
-          fqdn:      nsx-mgmt.rtolab.local
+          fqdn:      kosten-vcf90-nsx.rtolab.local
           vip:       192.168.114.38
-          node_fqdn: nsx-mgmt-01.rtolab.local
+          node_fqdn: kosten-vcf90-nsxn1.rtolab.local
           node_ip:   192.168.114.37
         tep_pool:
           cidr:        192.168.117.0/24
           gateway:     192.168.117.1
           range_start: 192.168.117.96
           range_end:   192.168.117.159
-        vcf_installer: { fqdn: vcf-inst-90.rtolab.local, ip: 192.168.114.34 }
+        vcf_installer: { fqdn: kosten-vcf90-inst.rtolab.local,  ip: 192.168.114.34 }
         operations:
-          fqdn:           vcf-ops.rtolab.local
-          fleet_fqdn:     vcf-fleet.rtolab.local
-          collector_fqdn: vcf-coll.rtolab.local
+          fqdn:           kosten-vcf90-ops.rtolab.local
+          fqdn_ip:        192.168.114.40
+          fleet_fqdn:     kosten-vcf90-fleet.rtolab.local
+          fleet_ip:       192.168.114.41
+          collector_fqdn: kosten-vcf90-coll.rtolab.local
+          collector_ip:   192.168.114.42
       vmotion_range: { start: 192.168.115.30, end: 192.168.115.33 }
       vsan_range:    { start: 192.168.116.30, end: 192.168.116.33 }
 
@@ -107,44 +114,47 @@ vcf:
     "5.2.1":
       management_domain:
         name: vcf-m02
-        sddc_manager:  { fqdn: sddc-mgr.rtolab.local, ip: 192.168.114.55 }
-        inner_vcenter: { fqdn: vc-mgmt.rtolab.local,  ip: 192.168.114.56 }
+        sddc_manager:  { fqdn: kosten-vcf521-sddc.rtolab.local, ip: 192.168.114.55 }
+        inner_vcenter: { fqdn: kosten-vcf521-vc.rtolab.local,   ip: 192.168.114.56 }
         nsx_manager:
-          fqdn:      nsx-mgmt.rtolab.local
+          fqdn:      kosten-vcf521-nsx.rtolab.local
           vip:       192.168.114.58
-          node_fqdn: nsx-mgmt-01.rtolab.local
+          node_fqdn: kosten-vcf521-nsxn1.rtolab.local
           node_ip:   192.168.114.57
         tep_pool:
           cidr:        192.168.117.0/24
           gateway:     192.168.117.1
           range_start: 192.168.117.160
           range_end:   192.168.117.223
-        cloud_builder: { fqdn: vcf-cb.rtolab.local, ip: 192.168.114.54 }
+        cloud_builder: { fqdn: kosten-vcf521-cb.rtolab.local,   ip: 192.168.114.54 }
       vmotion_range: { start: 192.168.115.50, end: 192.168.115.53 }
       vsan_range:    { start: 192.168.116.50, end: 192.168.116.53 }
 
 # -------- Nested ESXi hosts (per-version, 同 4 台 VM 但每版本不同 IP) ------
 # name            = ESXi hostname (不含後綴)
 # nested_vm_name  = 外層 vCenter 上的 VM 名 (含 -90 / -91 / -521 後綴, 區別 deploy)
+# fqdn            = ESXi 主機 mgmt vmk FQDN  (kosten-vcf<v>-esx01..04)
+# vmotion_fqdn    = vmotion vmk FQDN          (kosten-vcf<v>-esx01-vmot..04-vmot)
+# vsan_fqdn       = vsan vmk FQDN             (kosten-vcf<v>-esx01-vsan..04-vsan)
 hosts_by_version:
 
   "9.1":
-    - { name: vcf-m02-esx01, fqdn: esx01.rtolab.local, mgmt_ip: 192.168.114.14, vmotion_ip: 192.168.115.14, vsan_ip: 192.168.116.14, role: management, nested_vm_name: vcf-m02-esx01-91 }
-    - { name: vcf-m02-esx02, fqdn: esx02.rtolab.local, mgmt_ip: 192.168.114.15, vmotion_ip: 192.168.115.15, vsan_ip: 192.168.116.15, role: management, nested_vm_name: vcf-m02-esx02-91 }
-    - { name: vcf-m02-esx03, fqdn: esx03.rtolab.local, mgmt_ip: 192.168.114.16, vmotion_ip: 192.168.115.16, vsan_ip: 192.168.116.16, role: management, nested_vm_name: vcf-m02-esx03-91 }
-    - { name: vcf-m02-esx04, fqdn: esx04.rtolab.local, mgmt_ip: 192.168.114.17, vmotion_ip: 192.168.115.17, vsan_ip: 192.168.116.17, role: management, nested_vm_name: vcf-m02-esx04-91 }
+    - { name: vcf-m02-esx01, fqdn: kosten-vcf91-esx01.rtolab.local, mgmt_ip: 192.168.114.14, vmotion_ip: 192.168.115.14, vsan_ip: 192.168.116.14, vmotion_fqdn: kosten-vcf91-esx01-vmot.rtolab.local, vsan_fqdn: kosten-vcf91-esx01-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx01-91 }
+    - { name: vcf-m02-esx02, fqdn: kosten-vcf91-esx02.rtolab.local, mgmt_ip: 192.168.114.15, vmotion_ip: 192.168.115.15, vsan_ip: 192.168.116.15, vmotion_fqdn: kosten-vcf91-esx02-vmot.rtolab.local, vsan_fqdn: kosten-vcf91-esx02-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx02-91 }
+    - { name: vcf-m02-esx03, fqdn: kosten-vcf91-esx03.rtolab.local, mgmt_ip: 192.168.114.16, vmotion_ip: 192.168.115.16, vsan_ip: 192.168.116.16, vmotion_fqdn: kosten-vcf91-esx03-vmot.rtolab.local, vsan_fqdn: kosten-vcf91-esx03-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx03-91 }
+    - { name: vcf-m02-esx04, fqdn: kosten-vcf91-esx04.rtolab.local, mgmt_ip: 192.168.114.17, vmotion_ip: 192.168.115.17, vsan_ip: 192.168.116.17, vmotion_fqdn: kosten-vcf91-esx04-vmot.rtolab.local, vsan_fqdn: kosten-vcf91-esx04-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx04-91 }
 
   "9.0":
-    - { name: vcf-m02-esx01, fqdn: esx01.rtolab.local, mgmt_ip: 192.168.114.30, vmotion_ip: 192.168.115.30, vsan_ip: 192.168.116.30, role: management, nested_vm_name: vcf-m02-esx01-90 }
-    - { name: vcf-m02-esx02, fqdn: esx02.rtolab.local, mgmt_ip: 192.168.114.31, vmotion_ip: 192.168.115.31, vsan_ip: 192.168.116.31, role: management, nested_vm_name: vcf-m02-esx02-90 }
-    - { name: vcf-m02-esx03, fqdn: esx03.rtolab.local, mgmt_ip: 192.168.114.32, vmotion_ip: 192.168.115.32, vsan_ip: 192.168.116.32, role: management, nested_vm_name: vcf-m02-esx03-90 }
-    - { name: vcf-m02-esx04, fqdn: esx04.rtolab.local, mgmt_ip: 192.168.114.33, vmotion_ip: 192.168.115.33, vsan_ip: 192.168.116.33, role: management, nested_vm_name: vcf-m02-esx04-90 }
+    - { name: vcf-m02-esx01, fqdn: kosten-vcf90-esx01.rtolab.local, mgmt_ip: 192.168.114.30, vmotion_ip: 192.168.115.30, vsan_ip: 192.168.116.30, vmotion_fqdn: kosten-vcf90-esx01-vmot.rtolab.local, vsan_fqdn: kosten-vcf90-esx01-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx01-90 }
+    - { name: vcf-m02-esx02, fqdn: kosten-vcf90-esx02.rtolab.local, mgmt_ip: 192.168.114.31, vmotion_ip: 192.168.115.31, vsan_ip: 192.168.116.31, vmotion_fqdn: kosten-vcf90-esx02-vmot.rtolab.local, vsan_fqdn: kosten-vcf90-esx02-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx02-90 }
+    - { name: vcf-m02-esx03, fqdn: kosten-vcf90-esx03.rtolab.local, mgmt_ip: 192.168.114.32, vmotion_ip: 192.168.115.32, vsan_ip: 192.168.116.32, vmotion_fqdn: kosten-vcf90-esx03-vmot.rtolab.local, vsan_fqdn: kosten-vcf90-esx03-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx03-90 }
+    - { name: vcf-m02-esx04, fqdn: kosten-vcf90-esx04.rtolab.local, mgmt_ip: 192.168.114.33, vmotion_ip: 192.168.115.33, vsan_ip: 192.168.116.33, vmotion_fqdn: kosten-vcf90-esx04-vmot.rtolab.local, vsan_fqdn: kosten-vcf90-esx04-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx04-90 }
 
   "5.2.1":
-    - { name: vcf-m02-esx01, fqdn: esx01.rtolab.local, mgmt_ip: 192.168.114.50, vmotion_ip: 192.168.115.50, vsan_ip: 192.168.116.50, role: management, nested_vm_name: vcf-m02-esx01-521 }
-    - { name: vcf-m02-esx02, fqdn: esx02.rtolab.local, mgmt_ip: 192.168.114.51, vmotion_ip: 192.168.115.51, vsan_ip: 192.168.116.51, role: management, nested_vm_name: vcf-m02-esx02-521 }
-    - { name: vcf-m02-esx03, fqdn: esx03.rtolab.local, mgmt_ip: 192.168.114.52, vmotion_ip: 192.168.115.52, vsan_ip: 192.168.116.52, role: management, nested_vm_name: vcf-m02-esx03-521 }
-    - { name: vcf-m02-esx04, fqdn: esx04.rtolab.local, mgmt_ip: 192.168.114.53, vmotion_ip: 192.168.115.53, vsan_ip: 192.168.116.53, role: management, nested_vm_name: vcf-m02-esx04-521 }
+    - { name: vcf-m02-esx01, fqdn: kosten-vcf521-esx01.rtolab.local, mgmt_ip: 192.168.114.50, vmotion_ip: 192.168.115.50, vsan_ip: 192.168.116.50, vmotion_fqdn: kosten-vcf521-esx01-vmot.rtolab.local, vsan_fqdn: kosten-vcf521-esx01-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx01-521 }
+    - { name: vcf-m02-esx02, fqdn: kosten-vcf521-esx02.rtolab.local, mgmt_ip: 192.168.114.51, vmotion_ip: 192.168.115.51, vsan_ip: 192.168.116.51, vmotion_fqdn: kosten-vcf521-esx02-vmot.rtolab.local, vsan_fqdn: kosten-vcf521-esx02-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx02-521 }
+    - { name: vcf-m02-esx03, fqdn: kosten-vcf521-esx03.rtolab.local, mgmt_ip: 192.168.114.52, vmotion_ip: 192.168.115.52, vsan_ip: 192.168.116.52, vmotion_fqdn: kosten-vcf521-esx03-vmot.rtolab.local, vsan_fqdn: kosten-vcf521-esx03-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx03-521 }
+    - { name: vcf-m02-esx04, fqdn: kosten-vcf521-esx04.rtolab.local, mgmt_ip: 192.168.114.53, vmotion_ip: 192.168.115.53, vsan_ip: 192.168.116.53, vmotion_fqdn: kosten-vcf521-esx04-vmot.rtolab.local, vsan_fqdn: kosten-vcf521-esx04-vsan.rtolab.local, role: management, nested_vm_name: vcf-m02-esx04-521 }
 
 # -------- ISO / depot / OVA 檔位置 (放在 jumpbox / 自動化主機) -------------
 artifacts:
