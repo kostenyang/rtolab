@@ -14,10 +14,10 @@
   "dnsSpec": {
     "subdomain":   "{{ lab.domain }}",
     "domain":      "{{ lab.domain }}",
-    "nameservers": [ "{{ infra.jumpbox.ip }}" ]
+    "nameservers": [ "{{ infra.ad_dns.ip }}" ]
   },
 
-  "ntpServers": [ "{{ infra.jumpbox.ip }}" ],
+  "ntpServers": [ "{{ infra.ad_dns.ip }}" ],
 
   "rootUserCredentials": {
     "username": "root",

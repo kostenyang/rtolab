@@ -6,8 +6,8 @@
 .PARAMETER VcfInstaller
     VCF Installer URL (9.x) 或 Cloud Builder URL (5.x), 例如:
       https://192.168.114.5            (9.1 VCF Installer)
-      https://vcf-inst-90.rto.lab      (9.0 VCF Installer)
-      https://vcf-cb.rto.lab           (5.2.1 Cloud Builder)
+      https://vcf-inst-90.rtolab.local      (9.0 VCF Installer)
+      https://vcf-cb.rtolab.local           (5.2.1 Cloud Builder)
     (不需要結尾斜線)
 
 .PARAMETER SpecFile

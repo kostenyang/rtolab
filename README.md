@@ -1,4 +1,4 @@
-# VCF Lab — Infrastructure as Code (rto.lab / SELAB-Cluster)
+# VCF Lab — Infrastructure as Code (rtolab.local / SELAB-Cluster)
 
 整個 VCF lab 環境的「重建檔」。每層各自獨立、能重跑、不依賴某台機器的記憶。
 Layer 2 同時支援 **VCF 9.0** / **9.1** / **5.2.1** bring-up，靠 `-Version` 切換 (見 [layer2-bringup/README.md](./layer2-bringup/README.md))。三組 IP / FQDN 互不重疊，可隨意 swap version 重 deploy — 配置見 [inventory/ip-plan.md](./inventory/ip-plan.md)。

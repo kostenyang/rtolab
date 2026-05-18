@@ -8,26 +8,37 @@
 
 lab:
   name: vcf-m02
-  domain: rto.lab
+  domain: rtolab.local
 
-# -------- 物理 / 基礎服務 (lab 外圍, 三版本共用) ---------------------------
+# -------- 物理 / 基礎服務 (rtolab.local 機房, 三 VCF 版本共用) ------------------
+# rtolab.local 是獨立機房環境; 跟其他 git (vcf9.1-lab / vcf9-lab-automation) 的
+# 10.0.0.0/23 沒有任何關係, 不要從那邊複製值過來.
 infra:
-  # 你的 lab vCenter (跑 nested 的那個外層 vCenter)
+  # SELAB-Cluster 中央 vCenter (跑 nested ESXi VMs 的那台實體外層 vC)
+  # rtolab.local 的 4 台 nested ESXi 都註冊在這台上
   outer_vcenter:
-    fqdn: labvc.lab.com
-    ip:   10.0.0.101
+    fqdn: selabvc.rtolab.local
+    ip:   REPLACE_ME            # TODO: 填 selabvc 實際 IP
     user: administrator@vsphere.local
 
-  # AD + DNS + jumpbox (三版本共用 DNS, 都解 rto.lab)
-  jumpbox:
-    fqdn: dc01.rto.lab
-    ip:   10.0.0.200
-    role: [ad, dns, jumpbox]
+  # AD + DNS (rtolab.local zone 權威 DNS + NTP; 跟 VCF mgmt VMs 同 mgmt subnet)
+  ad_dns:
+    fqdn: kosten.rtolab.local
+    ip:   192.168.114.200
+    role: [ad, dns, ntp]
 
-  # 自動化主機 (這台跑你的所有 script)
+  # Automation host / Windows jumpbox
+  # 這份 git + 所有 PowerShell 腳本都跑在這台 (c:\Users\Administrator\rtolab)
+  # 不在 SELAB-Cluster underlay 內, 走獨立 mgmt 段 (172.16.10.0/24)
   automation_host:
-    ip:   10.0.0.65
-    user: labops
+    fqdn:    selab-win2022-jump.rtolab.local
+    ip:      172.16.10.32
+    netmask: 255.255.255.0
+    os:      Windows Server 2022
+    user:    Administrator
+    role:    [jumpbox, automation, powershell]
+    # 注意: scripts/bootstrap-automation-host.sh 是 Ubuntu/Debian 用的,
+    # 這台 Windows 不適用; PowerCLI 直接 Install-Module 安裝.
 
 # -------- 網路 underlay (VLAN / portgroup / gateway, 三版本共用) -----------
 # SELAB-Cluster underlay: selab-dswitch dvPortgroup 命名 = pg<VLAN>
@@ -52,19 +63,19 @@ vcf:
     "9.1":
       management_domain:
         name: vcf-m02
-        sddc_manager:  { fqdn: sddc-mgr.rto.lab, ip: 192.168.114.10 }
-        inner_vcenter: { fqdn: vc-mgmt.rto.lab,  ip: 192.168.114.11 }
+        sddc_manager:  { fqdn: sddc-mgr.rtolab.local, ip: 192.168.114.10 }
+        inner_vcenter: { fqdn: vc-mgmt.rtolab.local,  ip: 192.168.114.11 }
         nsx_manager:
-          fqdn:      nsx-mgmt.rto.lab        # cluster VIP FQDN
+          fqdn:      nsx-mgmt.rtolab.local        # cluster VIP FQDN
           vip:       192.168.114.13
-          node_fqdn: nsx-mgmt-01.rto.lab     # 第一個 manager node
+          node_fqdn: nsx-mgmt-01.rtolab.local     # 第一個 manager node
           node_ip:   192.168.114.12
         tep_pool:
           cidr:        192.168.117.0/24
           gateway:     192.168.117.1
           range_start: 192.168.117.32
           range_end:   192.168.117.95
-        vcf_installer: { fqdn: vcf-inst-91.rto.lab, ip: 192.168.114.5 }
+        vcf_installer: { fqdn: vcf-inst-91.rtolab.local, ip: 192.168.114.5 }
       vmotion_range: { start: 192.168.115.14, end: 192.168.115.17 }
       vsan_range:    { start: 192.168.116.14, end: 192.168.116.17 }
 
@@ -72,23 +83,23 @@ vcf:
     "9.0":
       management_domain:
         name: vcf-m02
-        sddc_manager:  { fqdn: sddc-mgr.rto.lab, ip: 192.168.114.35 }
-        inner_vcenter: { fqdn: vc-mgmt.rto.lab,  ip: 192.168.114.36 }
+        sddc_manager:  { fqdn: sddc-mgr.rtolab.local, ip: 192.168.114.35 }
+        inner_vcenter: { fqdn: vc-mgmt.rtolab.local,  ip: 192.168.114.36 }
         nsx_manager:
-          fqdn:      nsx-mgmt.rto.lab
+          fqdn:      nsx-mgmt.rtolab.local
           vip:       192.168.114.38
-          node_fqdn: nsx-mgmt-01.rto.lab
+          node_fqdn: nsx-mgmt-01.rtolab.local
           node_ip:   192.168.114.37
         tep_pool:
           cidr:        192.168.117.0/24
           gateway:     192.168.117.1
           range_start: 192.168.117.96
           range_end:   192.168.117.159
-        vcf_installer: { fqdn: vcf-inst-90.rto.lab, ip: 192.168.114.34 }
+        vcf_installer: { fqdn: vcf-inst-90.rtolab.local, ip: 192.168.114.34 }
         operations:
-          fqdn:           vcf-ops.rto.lab
-          fleet_fqdn:     vcf-fleet.rto.lab
-          collector_fqdn: vcf-coll.rto.lab
+          fqdn:           vcf-ops.rtolab.local
+          fleet_fqdn:     vcf-fleet.rtolab.local
+          collector_fqdn: vcf-coll.rtolab.local
       vmotion_range: { start: 192.168.115.30, end: 192.168.115.33 }
       vsan_range:    { start: 192.168.116.30, end: 192.168.116.33 }
 
@@ -96,19 +107,19 @@ vcf:
     "5.2.1":
       management_domain:
         name: vcf-m02
-        sddc_manager:  { fqdn: sddc-mgr.rto.lab, ip: 192.168.114.55 }
-        inner_vcenter: { fqdn: vc-mgmt.rto.lab,  ip: 192.168.114.56 }
+        sddc_manager:  { fqdn: sddc-mgr.rtolab.local, ip: 192.168.114.55 }
+        inner_vcenter: { fqdn: vc-mgmt.rtolab.local,  ip: 192.168.114.56 }
         nsx_manager:
-          fqdn:      nsx-mgmt.rto.lab
+          fqdn:      nsx-mgmt.rtolab.local
           vip:       192.168.114.58
-          node_fqdn: nsx-mgmt-01.rto.lab
+          node_fqdn: nsx-mgmt-01.rtolab.local
           node_ip:   192.168.114.57
         tep_pool:
           cidr:        192.168.117.0/24
           gateway:     192.168.117.1
           range_start: 192.168.117.160
           range_end:   192.168.117.223
-        cloud_builder: { fqdn: vcf-cb.rto.lab, ip: 192.168.114.54 }
+        cloud_builder: { fqdn: vcf-cb.rtolab.local, ip: 192.168.114.54 }
       vmotion_range: { start: 192.168.115.50, end: 192.168.115.53 }
       vsan_range:    { start: 192.168.116.50, end: 192.168.116.53 }
 
@@ -118,22 +129,22 @@ vcf:
 hosts_by_version:
 
   "9.1":
-    - { name: vcf-m02-esx01, fqdn: esx01.rto.lab, mgmt_ip: 192.168.114.14, vmotion_ip: 192.168.115.14, vsan_ip: 192.168.116.14, role: management, nested_vm_name: vcf-m02-esx01-91 }
-    - { name: vcf-m02-esx02, fqdn: esx02.rto.lab, mgmt_ip: 192.168.114.15, vmotion_ip: 192.168.115.15, vsan_ip: 192.168.116.15, role: management, nested_vm_name: vcf-m02-esx02-91 }
-    - { name: vcf-m02-esx03, fqdn: esx03.rto.lab, mgmt_ip: 192.168.114.16, vmotion_ip: 192.168.115.16, vsan_ip: 192.168.116.16, role: management, nested_vm_name: vcf-m02-esx03-91 }
-    - { name: vcf-m02-esx04, fqdn: esx04.rto.lab, mgmt_ip: 192.168.114.17, vmotion_ip: 192.168.115.17, vsan_ip: 192.168.116.17, role: management, nested_vm_name: vcf-m02-esx04-91 }
+    - { name: vcf-m02-esx01, fqdn: esx01.rtolab.local, mgmt_ip: 192.168.114.14, vmotion_ip: 192.168.115.14, vsan_ip: 192.168.116.14, role: management, nested_vm_name: vcf-m02-esx01-91 }
+    - { name: vcf-m02-esx02, fqdn: esx02.rtolab.local, mgmt_ip: 192.168.114.15, vmotion_ip: 192.168.115.15, vsan_ip: 192.168.116.15, role: management, nested_vm_name: vcf-m02-esx02-91 }
+    - { name: vcf-m02-esx03, fqdn: esx03.rtolab.local, mgmt_ip: 192.168.114.16, vmotion_ip: 192.168.115.16, vsan_ip: 192.168.116.16, role: management, nested_vm_name: vcf-m02-esx03-91 }
+    - { name: vcf-m02-esx04, fqdn: esx04.rtolab.local, mgmt_ip: 192.168.114.17, vmotion_ip: 192.168.115.17, vsan_ip: 192.168.116.17, role: management, nested_vm_name: vcf-m02-esx04-91 }
 
   "9.0":
-    - { name: vcf-m02-esx01, fqdn: esx01.rto.lab, mgmt_ip: 192.168.114.30, vmotion_ip: 192.168.115.30, vsan_ip: 192.168.116.30, role: management, nested_vm_name: vcf-m02-esx01-90 }
-    - { name: vcf-m02-esx02, fqdn: esx02.rto.lab, mgmt_ip: 192.168.114.31, vmotion_ip: 192.168.115.31, vsan_ip: 192.168.116.31, role: management, nested_vm_name: vcf-m02-esx02-90 }
-    - { name: vcf-m02-esx03, fqdn: esx03.rto.lab, mgmt_ip: 192.168.114.32, vmotion_ip: 192.168.115.32, vsan_ip: 192.168.116.32, role: management, nested_vm_name: vcf-m02-esx03-90 }
-    - { name: vcf-m02-esx04, fqdn: esx04.rto.lab, mgmt_ip: 192.168.114.33, vmotion_ip: 192.168.115.33, vsan_ip: 192.168.116.33, role: management, nested_vm_name: vcf-m02-esx04-90 }
+    - { name: vcf-m02-esx01, fqdn: esx01.rtolab.local, mgmt_ip: 192.168.114.30, vmotion_ip: 192.168.115.30, vsan_ip: 192.168.116.30, role: management, nested_vm_name: vcf-m02-esx01-90 }
+    - { name: vcf-m02-esx02, fqdn: esx02.rtolab.local, mgmt_ip: 192.168.114.31, vmotion_ip: 192.168.115.31, vsan_ip: 192.168.116.31, role: management, nested_vm_name: vcf-m02-esx02-90 }
+    - { name: vcf-m02-esx03, fqdn: esx03.rtolab.local, mgmt_ip: 192.168.114.32, vmotion_ip: 192.168.115.32, vsan_ip: 192.168.116.32, role: management, nested_vm_name: vcf-m02-esx03-90 }
+    - { name: vcf-m02-esx04, fqdn: esx04.rtolab.local, mgmt_ip: 192.168.114.33, vmotion_ip: 192.168.115.33, vsan_ip: 192.168.116.33, role: management, nested_vm_name: vcf-m02-esx04-90 }
 
   "5.2.1":
-    - { name: vcf-m02-esx01, fqdn: esx01.rto.lab, mgmt_ip: 192.168.114.50, vmotion_ip: 192.168.115.50, vsan_ip: 192.168.116.50, role: management, nested_vm_name: vcf-m02-esx01-521 }
-    - { name: vcf-m02-esx02, fqdn: esx02.rto.lab, mgmt_ip: 192.168.114.51, vmotion_ip: 192.168.115.51, vsan_ip: 192.168.116.51, role: management, nested_vm_name: vcf-m02-esx02-521 }
-    - { name: vcf-m02-esx03, fqdn: esx03.rto.lab, mgmt_ip: 192.168.114.52, vmotion_ip: 192.168.115.52, vsan_ip: 192.168.116.52, role: management, nested_vm_name: vcf-m02-esx03-521 }
-    - { name: vcf-m02-esx04, fqdn: esx04.rto.lab, mgmt_ip: 192.168.114.53, vmotion_ip: 192.168.115.53, vsan_ip: 192.168.116.53, role: management, nested_vm_name: vcf-m02-esx04-521 }
+    - { name: vcf-m02-esx01, fqdn: esx01.rtolab.local, mgmt_ip: 192.168.114.50, vmotion_ip: 192.168.115.50, vsan_ip: 192.168.116.50, role: management, nested_vm_name: vcf-m02-esx01-521 }
+    - { name: vcf-m02-esx02, fqdn: esx02.rtolab.local, mgmt_ip: 192.168.114.51, vmotion_ip: 192.168.115.51, vsan_ip: 192.168.116.51, role: management, nested_vm_name: vcf-m02-esx02-521 }
+    - { name: vcf-m02-esx03, fqdn: esx03.rtolab.local, mgmt_ip: 192.168.114.52, vmotion_ip: 192.168.115.52, vsan_ip: 192.168.116.52, role: management, nested_vm_name: vcf-m02-esx03-521 }
+    - { name: vcf-m02-esx04, fqdn: esx04.rtolab.local, mgmt_ip: 192.168.114.53, vmotion_ip: 192.168.115.53, vsan_ip: 192.168.116.53, role: management, nested_vm_name: vcf-m02-esx04-521 }
 
 # -------- ISO / depot / OVA 檔位置 (放在 jumpbox / 自動化主機) -------------
 artifacts:

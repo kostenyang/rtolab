@@ -9,12 +9,12 @@
   "ceipEnabled":          false,
   "deployWithoutLicenseKeys": true,
 
-  "ntpServers": [ "{{ infra.jumpbox.ip }}" ],
+  "ntpServers": [ "{{ infra.ad_dns.ip }}" ],
 
   "dnsSpec": {
     "subdomain":  "{{ lab.domain }}",
     "domain":     "{{ lab.domain }}",
-    "nameserver": "{{ infra.jumpbox.ip }}"
+    "nameserver": "{{ infra.ad_dns.ip }}"
   },
 
   "sddcManagerSpec": {
