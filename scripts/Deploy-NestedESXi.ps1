@@ -140,11 +140,14 @@ foreach ($v in $Versions) {
     $sz = $inv.vcf.versions[$v].sizing
     $vcpu = if ($sz -and $sz.vcpu)      { [int]$sz.vcpu }      else { 12 }
     $mem  = if ($sz -and $sz.memory_gb) { [int]$sz.memory_gb } else { 96 }
+    # ESXi installer ISO datastore path (要先 upload 到 vsanDatastore (1)/iso/)
+    $isoDs = $inv.artifacts.$artKey.esxi_iso_datastore
     foreach ($h in $inv.hosts_by_version[$v]) {
         $deployList += [pscustomobject]@{
             Version       = $v
             VKey          = $vKey
             OvaPath       = $ovaPath
+            EsxiIsoDs     = $isoDs
             VMName        = $h.nested_vm_name
             Hostname      = $h.fqdn
             MgmtIp        = $h.mgmt_ip
@@ -251,20 +254,22 @@ foreach ($group in $grouped) {
                 } catch { Write-DeployLog "  disk resize failed: $($_.Exception.Message)" 'Yellow' $vmTag }
             }
 
-            # OVA 預設 BootOrder = CD-ROM only -> 找不到 ISO 就掉 BIOS. 改成 Disk first.
-            $diskKey = ($disks | Where-Object { $_.Name -eq 'Hard disk 1' }).ExtensionData.Key
-            if ($diskKey) {
-                $bootDisk = New-Object VMware.Vim.VirtualMachineBootOptionsBootableDiskDevice -Property @{ DeviceKey = $diskKey }
-                $bootOpts = New-Object VMware.Vim.VirtualMachineBootOptions -Property @{ BootOrder = @($bootDisk) }
-                $reconfSpec = New-Object VMware.Vim.VirtualMachineConfigSpec -Property @{ BootOptions = $bootOpts }
-                $task = $vm.ExtensionData.ReconfigVM_Task($reconfSpec)
-                $tv = Get-View $task
-                while ($tv.Info.State -in 'running','queued') { Start-Sleep 1; $tv.UpdateViewData('Info.State','Info.Error') }
-                if ($tv.Info.State -eq 'success') { Write-DeployLog "  BootOrder -> Disk first" 'DarkGray' $vmTag }
-                else { Write-DeployLog "  BootOrder set failed: $($tv.Info.Error.LocalizedMessage)" 'Yellow' $vmTag }
+            # Mount ESXi installer ISO 到 CD-ROM. OVA 預設 BootOrder = CDROM,
+            # 所以開機從 ISO 跑 ESXi installer (kickstart 或 manual). Disk 1 從
+            # OVA template 帶來的 ESXi 不能用 (BIOS-format, ESXi 8 不允許 legacy boot).
+            if ($item.EsxiIsoDs) {
+                try {
+                    $cd = $vm | Get-CDDrive
+                    Set-CDDrive -CD $cd -IsoPath $item.EsxiIsoDs -StartConnected:$true -Confirm:$false | Out-Null
+                    Write-DeployLog "  CDROM -> $($item.EsxiIsoDs)" 'DarkGray' $vmTag
+                } catch {
+                    Write-DeployLog "  CDROM mount failed: $($_.Exception.Message)" 'Yellow' $vmTag
+                }
+            } else {
+                Write-DeployLog "  no ESXi ISO in inventory for $($item.Version), skip CDROM mount" 'Yellow' $vmTag
             }
 
-            Write-DeployLog "powering on..." 'White' $vmTag
+            Write-DeployLog "powering on (boot from ISO -> ESXi installer)..." 'White' $vmTag
             $vm | Start-VM -Confirm:$false | Out-Null
             Write-DeployLog "✓ done" 'Green' $vmTag
         } catch {
