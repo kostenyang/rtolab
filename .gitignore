@@ -50,3 +50,7 @@ layer2-bringup/vcf*/smoketest-*.json
 # VM console screenshots (debug artifacts, not source)
 *.png
 
+
+# VCF Installer 9.x OpenAPI / spec samples (HTML fallthroughs, big, useless)
+layer2-bringup/vcf*/openapi.json
+layer2-bringup/vcf*/sample-sddc-spec.json

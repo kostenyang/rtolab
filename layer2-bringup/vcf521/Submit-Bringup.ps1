@@ -21,16 +21,7 @@ $Version = '5.2.1'
 if (-not (Test-Path $SpecFile)) { throw "Spec 檔不存在: $SpecFile" }
 $specJson = Get-Content -Raw $SpecFile
 
-if (-not ('TrustAllCertsPolicy' -as [type])) {
-    Add-Type -TypeDefinition @'
-    using System.Net;
-    using System.Security.Cryptography.X509Certificates;
-    public class TrustAllCertsPolicy : ICertificatePolicy {
-        public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; }
-    }
-'@
-}
-[System.Net.ServicePointManager]::CertificatePolicy = [TrustAllCertsPolicy]::new()
+# pwsh 7 沒 ICertificatePolicy. 所有 Invoke-RestMethod 都帶 -SkipCertificateCheck.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $base = $CloudBuilder.TrimEnd('/')

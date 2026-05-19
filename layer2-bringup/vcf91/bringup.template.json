@@ -1,5 +1,5 @@
 {
-  "_comment": "VCF 9.1 Management Domain Bring-up Spec — 由 Generate-BringupSpec.ps1 從 inventory/lab.yaml 填入. 鍵名以 VCF 9.x API 為準, 9.1 若有變動以官方 OpenAPI 為準.",
+  "_comment": "VCF 9.1 Management Domain Bring-up Spec — 由 Generate-BringupSpec.ps1 從 inventory/lab.yaml 填入.",
 
   "sddcId": "{{ vcf.management_domain.name }}",
   "workflowType": "VCF",
@@ -8,13 +8,11 @@
 
   "managementPoolName": "{{ vcf.management_domain.name }}-mgmt-pool",
   "skipEsxThumbprintValidation": true,
-  "_lab_note_1": "skipEsxThumbprintValidation = true 是 lab workaround, 正式環境設 false",
 
   "dnsSpec": {
     "subdomain": "{{ lab.domain }}",
     "domain":    "{{ lab.domain }}",
-    "nameserver":          "{{ infra.ad_dns.ip }}",
-    "secondaryNameserver": ""
+    "nameservers": ["{{ infra.ad_dns.ip }}"]
   },
 
   "ntpServers": [
@@ -43,12 +41,8 @@
     "storageSize": "lstorage"
   },
 
-  "psoSpec": {
-    "_lab_note_2": "VCF 9 取消獨立 PSC, embedded 在 vCenter 內, 留 stub 結構以防 9.1 schema 仍要求"
-  },
-
   "nsxtSpec": {
-    "nsxtManagerSize":  "small",
+    "nsxtManagerSize":  "medium",
     "nsxtManagers": [
       {
         "hostname":  "{{ vcf.management_domain.nsx_manager.fqdn | splitDot 0 }}",
@@ -64,17 +58,17 @@
   },
 
   "vsanSpec": {
-    "vsanName":  "vsanDatastore",
+    "vsanName":  "vsan-1",
+    "datastoreName": "{{ vcf.management_domain.name }}-cl01-ds-vsan01",
     "licenseFile": "",
     "esaConfig": {
-      "enabled": true,
-      "_lab_note_3": "vSAN ESA. 若硬體不在 HCL, 必須加上 lab workaround (見 README)."
+      "enabled": true
     }
   },
 
   "dvsSpecs": [
     {
-      "dvsName":  "SDDC-Dswitch-Private",
+      "dvsName":  "{{ vcf.management_domain.name }}-cl01-vds01",
       "vmnics":   ["vmnic0", "vmnic1"],
       "mtu":      9000,
       "networks": ["MANAGEMENT", "VSAN", "VMOTION"],
@@ -88,14 +82,44 @@
         { "trafficType": "HBR",          "value": "LOW"    },
         { "trafficType": "FAULTTOLERANCE","value": "LOW"   },
         { "trafficType": "ISCSI",        "value": "LOW"    }
-      ]
+      ],
+      "isUsedByNsxt": true
     }
   ],
 
   "networkSpecs": [
-    { "networkType": "MANAGEMENT", "subnet": "{{ network.mgmt.cidr }}",   "vlanId": "{{ network.mgmt.vlan }}",   "mtu": "1500", "gateway": "{{ network.mgmt.gateway }}",   "portGroupKey": "SDDC-DPortGroup-Mgmt" },
-    { "networkType": "VSAN",       "subnet": "{{ network.vsan.cidr }}",   "vlanId": "{{ network.vsan.vlan }}",   "mtu": "9000", "gateway": "{{ network.vsan.gateway }}",   "portGroupKey": "SDDC-DPortGroup-VSAN" },
-    { "networkType": "VMOTION",    "subnet": "{{ network.vmotion.cidr }}","vlanId": "{{ network.vmotion.vlan }}","mtu": "9000", "gateway": "{{ network.vmotion.gateway }}","portGroupKey": "SDDC-DPortGroup-Vmotion" }
+    {
+      "networkType": "MANAGEMENT",
+      "subnet":      "{{ network.mgmt.cidr }}",
+      "vlanId":      "{{ network.mgmt.vlan }}",
+      "mtu":         "1500",
+      "gateway":     "{{ network.mgmt.gateway }}",
+      "portGroupKey": "{{ vcf.management_domain.name }}-cl01-vds01-pg-mgmt",
+      "activeUplinks":  ["uplink1","uplink2"],
+      "standbyUplinks": []
+    },
+    {
+      "networkType": "VSAN",
+      "subnet":      "{{ network.vsan.cidr }}",
+      "vlanId":      "{{ network.vsan.vlan }}",
+      "mtu":         "9000",
+      "gateway":     "{{ network.vsan.gateway }}",
+      "portGroupKey": "{{ vcf.management_domain.name }}-cl01-vds01-pg-vsan",
+      "includeIpAddressRanges": [{ "startIpAddress": "{{ network.vsan.range_start }}", "endIpAddress": "{{ network.vsan.range_end }}" }],
+      "activeUplinks":  ["uplink1","uplink2"],
+      "standbyUplinks": []
+    },
+    {
+      "networkType": "VMOTION",
+      "subnet":      "{{ network.vmotion.cidr }}",
+      "vlanId":      "{{ network.vmotion.vlan }}",
+      "mtu":         "9000",
+      "gateway":     "{{ network.vmotion.gateway }}",
+      "portGroupKey": "{{ vcf.management_domain.name }}-cl01-vds01-pg-vmotion",
+      "includeIpAddressRanges": [{ "startIpAddress": "{{ network.vmotion.range_start }}", "endIpAddress": "{{ network.vmotion.range_end }}" }],
+      "activeUplinks":  ["uplink1","uplink2"],
+      "standbyUplinks": []
+    }
   ],
 
   "clusterSpec": {
@@ -105,9 +129,6 @@
       "MANAGEMENT": "{{ vcf.management_domain.name }}-fd-mgmt",
       "NETWORKING": "{{ vcf.management_domain.name }}-fd-nsx",
       "EDGENODES":  "{{ vcf.management_domain.name }}-fd-edge"
-    },
-    "personalitySpec": {
-      "_lab_note_4": "Personality / vLCM image. 留空使用 default cluster image"
     }
   },
 
@@ -136,16 +157,5 @@
       "hostname":    "{{ hosts[3].fqdn | splitDot 0 }}",
       "credentials": { "username": "root", "password": "{{ secrets.esxi.root_pw }}" }
     }
-  ],
-
-  "_lab_workarounds": {
-    "comment": "下列由 Generate-BringupSpec.ps1 在 -LabMode 開啟時注入到對應節點",
-    "candidates": [
-      "bypassVsanEsaHcl",
-      "skipNestedCpuCheck",
-      "skipNicCountCheck",
-      "skipMinHostCheck",
-      "allowUnsupportedSslThumbprint"
-    ]
-  }
+  ]
 }
