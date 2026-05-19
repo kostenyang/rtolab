@@ -1,11 +1,13 @@
 {
   "_comment": "VCF 9.0 Management Domain Bring-up Spec. 結構對齊 William Lam autodeployvcf9m01.ps1 / VCF Installer 9.0 OpenAPI. 由 Generate-BringupSpec.ps1 -Version 9.0 從 inventory/lab.yaml 渲染.",
 
+  "sddcId":              "{{ vcf.management_domain.name }}",
+  "workflowType":        "VCF",
   "vcfInstanceName":     "{{ vcf.management_domain.name }}",
   "managementPoolName":  "{{ vcf.management_domain.name }}-np01",
   "ceipEnabled":         false,
   "fipsEnabled":         false,
-  "version":             "9.0.0.0",
+  "version":             "9.0.2.0",
 
   "skipEsxThumbprintValidation": true,
   "skipGatewayPingValidation":   true,
