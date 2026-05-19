@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<title>rtolab — VCF 5.2.1 / 9.0 / 9.1 自動化部署實作筆記</title>
+<style>
+body { font-family: -apple-system, "Segoe UI", "PingFang TC", sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; color: #222; line-height: 1.55; }
+h1, h2, h3 { color: #14365c; }
+h1 { border-bottom: 3px solid #14365c; padding-bottom: .3em; }
+h2 { border-bottom: 1px solid #ddd; padding-bottom: .2em; margin-top: 2em; }
+code, pre { font-family: "JetBrains Mono", Consolas, monospace; }
+pre { background: #f5f5f7; padding: .8em 1em; overflow-x: auto; border-left: 3px solid #14365c; }
+code { background: #f0f0f3; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+table { border-collapse: collapse; width: 100%; margin: .5em 0 1em 0; }
+th, td { border: 1px solid #ccc; padding: .4em .6em; text-align: left; vertical-align: top; }
+th { background: #14365c; color: white; }
+.deviation { background: #fff8e1; border-left: 4px solid #f7a900; padding: .6em 1em; margin: .8em 0; }
+.tradeoff { background: #e3f2fd; border-left: 4px solid #1976d2; padding: .6em 1em; margin: .8em 0; }
+.open { background: #fce4ec; border-left: 4px solid #c2185b; padding: .6em 1em; margin: .8em 0; }
+.decision { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: .6em 1em; margin: .8em 0; }
+.label { font-weight: bold; text-transform: uppercase; font-size: 0.8em; letter-spacing: 1px; color: #333; }
+</style>
+</head>
+<body>
+
+<h1>rtolab — VCF 5.2.1 / 9.0 / 9.1 自動化部署實作筆記</h1>
+
+<p><strong>Spec</strong>: 在 SELAB-Cluster (vCenter 7.0u3) 上 nested 部 VCF 5.2.1 + 9.0 + 9.1 三組環境並存. 每組 4 台 nested ESXi + 對應 VCF Installer / Cloud Builder, 自動 bring-up management domain.</p>
+
+<p><strong>Repo</strong>: <a href="https://github.com/kostenyang/rtolab">github.com/kostenyang/rtolab</a></p>
+
+<h2>Design Decisions</h2>
+
+<div class="decision">
+<span class="label">Decision</span> — <strong>三組 VCF 並存的 IP / FQDN 分段</strong>
+<p>在 192.168.114.0/24 mgmt subnet 內切三段不重疊區段:</p>
+<table>
+<tr><th>Version</th><th>VCF mgmt</th><th>ESXi</th><th>Operations (9.0)</th><th>VSP (9.1)</th></tr>
+<tr><td>9.1</td><td>.5 inst, .10 sddc, .11 vc, .12-.13 nsx</td><td>.14-.17</td><td>—</td><td>.18-.29 pool, .43-.44 fqdn</td></tr>
+<tr><td>9.0</td><td>.34 inst, .35 sddc, .36 vc, .37-.38 nsx</td><td>.30-.33</td><td>.40-.42</td><td>—</td></tr>
+<tr><td>5.2.1</td><td>.54 cb, .55 sddc, .56 vc, .57-.58 nsx</td><td>.50-.53</td><td>—</td><td>—</td></tr>
+</table>
+<p>三組 FQDN 共存 (<code>kosten-vcf{521,90,91}-*.rtolab.local</code>), 寫進 kosten AD DNS, 不衝突.</p>
+</div>
+
+<div class="decision">
+<span class="label">Decision</span> — <strong>Nested ESXi: clone-from-master 而非 OVA 直接部</strong>
+<p>原本想 William Lam 的 nested ESXi OVA 直接 import 但 vCenter 7.0u3 不收 vmx-20. 改:</p>
+<ol>
+<li>每版本手動裝 1 台 master (DCUI install + ESXi installer ISO)</li>
+<li>SSH 跑 <code>Configure-NestedEsxiSsh.ps1</code>: 套 6 個 vSAN/LSOM workarounds + <code>/Net/FollowHardwareMac=1</code> + auto-backup</li>
+<li><code>Export-NestedEsxiOva.ps1</code> 把 master 匯出成 .ova golden image</li>
+<li><code>Deploy-FromGoldenOva.ps1</code> 把 OVA 部 3 個 clone (esx02-04)</li>
+</ol>
+</div>
+
+<div class="decision">
+<span class="label">Decision</span> — <strong>5.2.1 跑 CB 5.2.1 GA 而非 5.2.3</strong>
+<p>原本拿到的 OVA 是 Cloud Builder 5.2.3.0-25219033, 但它寫死要 ESXi build <code>25205845</code> (8.0U3l/2026). 試 <code>skipEsxBuildValidation</code> CB 不認.</p>
+<p>改抓 CB 5.2.1.0-24307856 GA, 要 ESXi build <code>24280767</code> (8.0U3b/2024-09), 可用 <code>vcf-download-tool</code> + <code>esxcli software profile update -d &lt;depot.zip&gt;</code> 升 (~5min/host).</p>
+</div>
+
+<div class="decision">
+<span class="label">Decision</span> — <strong>9.1 用 IIS 起本機 HTTP depot 給 installer</strong>
+<p>VCF 9.1 native 支援 HTTP no-auth offline depot (port 8888). PowerShell HttpListener 太慢 (504 timeout 在 multi-GB 檔案), 改裝 Windows Server 2022 內建的 IIS, MIME types 補齊 (.ova .tar .tgz .iso .sig .yaml .xml .zip), 對 VCF Installer 9.1 PUT <code>/v1/system/settings/depot</code> 回 <code>DEPOT_CONNECTION_SUCCESSFUL</code>.</p>
+</div>
+
+<div class="decision">
+<span class="label">Decision</span> — <strong>9.0 用 installer 自己內建的 online depot</strong>
+<p>9.0 installer 開了之後 user 自己用 web UI 配 token + 走 broadcom 線上 depot. 154 bundles 自動下載到 installer 本身, 我們不用搞 IIS.</p>
+</div>
+
+<h2>Deviations from Spec</h2>
+
+<div class="deviation">
+<span class="label">Deviation</span> — <strong>Gateway 從 <code>.1</code> 改 <code>.254</code></strong>
+<p>初版 <code>inventory/lab.yaml</code> 寫 <code>network.mgmt.gateway: 192.168.114.1</code>, 但 SELAB underlay 實際 gateway 是 <code>.254</code> (跟 <code>172.16.10.254</code> 同 convention). <code>.1</code> 完全不存在, 從 clone 試 ping <code>.254</code> reply 才確認.</p>
+<p>導致前期 clone 部好之後從 jumpbox ping 不到 — return path 死在不存在的 gateway. 改完 inventory + Apply-CloneIp 重套全部 host, 立刻通.</p>
+</div>
+
+<div class="deviation">
+<span class="label">Deviation</span> — <strong>vmk0 force re-bind to vmnic0 MAC (不靠 <code>/Net/FollowHardwareMac</code> 自動)</strong>
+<p>從 master OVA clone 出來的 host, 因 state.tgz 內 vmk0 MAC 是 master 的, clone 新 vNIC MAC 收不到 reply. <code>/Net/FollowHardwareMac=1</code> 只在 boot 時 evaluate, post-boot 設沒用.</p>
+<p>用 GuestOps API 跑 <code>esxcli network ip interface remove --interface-name=vmk0; esxcli network ip interface add --interface-name=vmk0 --portgroup-name='Management Network' --mac-address=$(esxcli network nic list | awk '/vmnic0/{print $8}')</code> 強制 re-bind. 烤進 master state.tgz 之後 clone 第一次 boot 就吃對.</p>
+</div>
+
+<div class="deviation">
+<span class="label">Deviation</span> — <strong>VCF 9.x SddcSpec schema 重寫 (5.2.x 假設不適用)</strong>
+<p>我原本的 9.1 bringup template 是參考 5.2.1 autodeploy 寫的, 但 9.x API 結構不同:</p>
+<ul>
+<li><code>vsanSpec</code> 從 top-level 改進 <code>datastoreSpec.vsanSpec</code></li>
+<li><code>dvsSpec.vmnics</code> 改 <code>dvsSpec.vmnicsToUplinks</code> (array of <code>{id, uplink}</code> 物件)</li>
+<li><code>vspClusterSpec</code> 新加 (VCF Services Platform, 9.x 必填)</li>
+<li><code>IpRange.start/end</code> 改 <code>startIpAddress/endIpAddress</code></li>
+<li><code>networkSpecs.vlanId</code> 要 integer (不是 string)</li>
+<li><code>teamingPolicy</code> 要小寫 (<code>loadbalance_loadbased</code>)</li>
+<li>NSX TEP 用 <code>ipAddressPoolSpec.subnets[].ipAddressPoolRanges</code></li>
+<li><code>nsxTeamings</code> + <code>nsxtSwitchConfig.transportZones</code> 要明確指定</li>
+</ul>
+<p>schema 從 installer 內 <code>/opt/vmware/vcf/sddc-manager-ui-app/.../assets/vcf-installer-openapi.json</code> (354KB) 抽出來對齊.</p>
+</div>
+
+<div class="deviation">
+<span class="label">Deviation</span> — <strong>9.0 spec version: 9.0.0.0 vs 9.0.2.0</strong>
+<p>9.0 VCF Installer 跑 9.0.2.0 (build 25151285), depot bundles 也是 9.0.2.0.* (SDDC Manager .25151285, ESX_HOST .25148076 等). spec 內 <code>version</code> 必須對齊 depot 有的版本 (= 9.0.2.0). 寫 9.0.0.0 會 <code>FAILED_TO_VALIDATE_COMPONENT_FILE</code>.</p>
+</div>
+
+<h2>Tradeoffs</h2>
+
+<div class="tradeoff">
+<span class="label">Tradeoff</span> — <strong>secrets: sops vs 本機明文</strong>
+<p>原 spec 用 sops + age 加密. Windows 環境沒 sops binary 順手, age key 管理也是額外維護. <strong>選擇</strong>: <code>inventory/secrets/lab.yaml</code> 明文 + 強 .gitignore (<code>inventory/secrets/lab.yaml</code>). 風險: 拿到 jumpbox = 拿到密碼; 但 lab 範圍可接受.</p>
+</div>
+
+<div class="tradeoff">
+<span class="label">Tradeoff</span> — <strong>ESXi 升級: 走 esxcli profile update vs ISO boot</strong>
+<p>5.2.1 ESXi 需從 build 24022510 升到 24280767. 兩種路徑:</p>
+<ul>
+<li><strong>(A) ISO boot + interactive DCUI Upgrade</strong>: 5 min/host, 但要人類在 console 按 F11. 4 台 = 20 min 純手動.</li>
+<li><strong>(B) <code>esxcli software profile update -d &lt;depot.zip&gt;</code></strong>: 全自動 SSH + reboot. 但要 depot zip (不是 ISO).</li>
+</ul>
+<p><strong>選擇</strong>: (B) — user 提供 depot zip 後, <code>scripts/Upgrade-NestedEsxi521-zip.ps1</code> 把 zip SFTP 到每台 <code>/vmfs/volumes/OSDATA-*</code>, 跑 esxcli, 自動 reboot. ~10 min/host 但 0 互動.</p>
+</div>
+
+<div class="tradeoff">
+<span class="label">Tradeoff</span> — <strong>VCF Installer 9.x depot: 本機 IIS 還是 Linux nginx</strong>
+<p>William Lam 的 <code>create_vcf9_depot_server_v3.sh</code> 是 Linux nginx 路線. 我這邊 jumpbox 是 Windows.</p>
+<ul>
+<li><strong>Linux VM + nginx</strong>: 跟 Lam 的 script 完全 align, 但要部一台 VM, 多花 30 min</li>
+<li><strong>Windows IIS</strong>: 本機 jumpbox 直接裝, Install-WindowsFeature 5 min OK</li>
+</ul>
+<p><strong>選擇</strong>: Windows IIS. 已驗證 9.1 installer 透過它 PUT depot config 成功 + 抓 manifest + 抓 bundle 都通.</p>
+</div>
+
+<div class="tradeoff">
+<span class="label">Tradeoff</span> — <strong>VCF 9.1 vs 9.0 bringup 優先順序</strong>
+<p>9.1 schema 我們重寫好了, validation passes deployment spec + security, 但 depot bundle metadata 不完整 (download tool 只拉 binary, 沒拉 <code>upgrade_info.xml</code>) → bundles 還沒被 installer 認到.</p>
+<p>9.0 installer 自己內建線上 depot fetch, 比較快, 154 bundles 直接到位.</p>
+<p><strong>選擇</strong>: 先衝 9.0 bringup (已 in-progress, deploy vCenter 中). 9.1 等 9.0 完成釋出時間再回頭.</p>
+</div>
+
+<h2>Open Questions</h2>
+
+<div class="open">
+<span class="label">Question</span> — <strong>VLAN 115/116/117 (vmotion/vsan/overlay) 在 physical switch 通不通?</strong>
+<p>原始 spec 假設 outer vDS <code>selab-dswitch</code> 的 trunk portgroup pass VLAN 0-4094, MTU 9000. 實測 VLAN 114 (mgmt) 完全通; 115/116/117 vmkping MTU 9000 在 9.1 validation 是 WARNING (5.2.1 / 9.0 已 SUCCEEDED — 看來 5.2.1/9.0 對 jumbo 寬鬆些, 或實體 switch 之前剛好 trunk 過).</p>
+<p>如果 physical switch 沒 trunk 115/116/117 + jumbo, bringup 後 vSAN/NSX 流量會跑不起來. 需要 user 端確認 / 補上 trunk + MTU 配置.</p>
+</div>
+
+<div class="open">
+<span class="label">Question</span> — <strong>9.1 bringup 是否還要往下推?</strong>
+<p>9.0 已 bring-up, 已驗證流程通. 9.1 卡在 depot bundle metadata 結構問題, 補齊還要時間. 如果 9.0 跑通了相當於 VCF 9 線的 PoC, 是否還需要 9.1?</p>
+</div>
+
+<div class="open">
+<span class="label">Question</span> — <strong>5.2.1 leftover state cleanup 自動化</strong>
+<p>5.2.1 第一次 validation 失敗 (build 不對) 之後, CB 已經先在 host 上創了 <code>vcf-m02-vds01</code> standard vSwitch + vmk30 (NSX TEP). 升 build 後 validation 抓到 "vSwitch already exists / vmk30 exists" 需要手動清.</p>
+<p>是否要做一個 <code>Reset-NestedEsxi.ps1</code> 把 host 還原到 vmk0/vSwitch0 only 的乾淨狀態, 給 retry 用?</p>
+</div>
+
+<h2>Status (2026-05-19 ~13:30)</h2>
+
+<table>
+<tr><th>環境</th><th>狀態</th></tr>
+<tr><td>12 nested ESXi (4×3 versions)</td><td>✅ all reachable, hostname/cert/NTP/SSH/build 都對齊</td></tr>
+<tr><td>9.0 VCF Installer @ .34</td><td>✅ 部好, depot connected (154 bundles)</td></tr>
+<tr><td>9.1 VCF Installer @ .5</td><td>✅ 部好, IIS depot connected, validation passes Deployment + Security</td></tr>
+<tr><td>5.2.1 Cloud Builder @ .54</td><td>✅ 部好 (5.2.1 GA OVA), 14/14 validation SUCCEEDED</td></tr>
+<tr><td>9.0 bring-up</td><td>🚀 IN_PROGRESS (sddcId 3feca031, Deploy vCenter 中)</td></tr>
+<tr><td>5.2.1 bring-up</td><td>🚀 IN_PROGRESS (sddcId 301f60c9, 剛開始)</td></tr>
+<tr><td>9.1 bring-up</td><td>⏸ pending — schema OK 但 depot bundle metadata 缺</td></tr>
+</table>
+
+<h2>Key Scripts</h2>
+
+<table>
+<tr><th>Script</th><th>What it does</th></tr>
+<tr><td><code>scripts/Deploy-NestedESXi.ps1</code></td><td>從零 PowerCLI New-VM 部 nested ESXi shell (PVSCSI boot + NVMe data + IDE CDROM)</td></tr>
+<tr><td><code>scripts/Configure-NestedEsxiSsh.ps1</code></td><td>SSH 進 master, 套 6 個 vSAN/LSOM workaround + /Net/FollowHardwareMac=1 + local.sh + auto-backup</td></tr>
+<tr><td><code>scripts/Export-NestedEsxiOva.ps1</code></td><td>master VM → OVF folder → 注入 vApp properties → 重打包成單檔 OVA</td></tr>
+<tr><td><code>scripts/Deploy-FromGoldenOva.ps1</code></td><td>從 golden OVA 部 clone, 設 guestinfo, 開機</td></tr>
+<tr><td><code>scripts/Fix-CloneNetwork.ps1</code></td><td>GuestOps + esxcli vmk0 remove/add 強制鎖 MAC 到 vmnic0</td></tr>
+<tr><td><code>scripts/Apply-CloneIp.ps1</code></td><td>GuestOps 套 IP/hostname/DNS/route (兩階段 set, 避開 netstack gateway chicken-egg)</td></tr>
+<tr><td><code>scripts/Regen-EsxiCert.ps1</code></td><td>SSH 跑 /sbin/generate-certificates + hostd/rhttpproxy restart (cert CN match FQDN)</td></tr>
+<tr><td><code>scripts/Set-DnsRecords.ps1</code></td><td>把 54 A + 56 PTR 推到 kosten AD DNS (三版本 FQDN 共存)</td></tr>
+<tr><td><code>scripts/Upgrade-NestedEsxi521-zip.ps1</code></td><td>SFTP depot zip + <code>esxcli software profile update</code> + reboot (build 升級)</td></tr>
+<tr><td><code>scripts/Deploy-VcfInstaller.ps1</code></td><td>部 VCF Installer / Cloud Builder appliance (OVF properties 設好)</td></tr>
+<tr><td><code>layer2-bringup/vcf{521,90,91}/</code></td><td>每版本 self-contained: bringup.template.json + Generate-BringupSpec.ps1 + Submit-Bringup.ps1 + New-VcfLab.ps1</td></tr>
+<tr><td><code>layer2-bringup/vcf91/Configure-LocalDepot.ps1</code></td><td>(已被 IIS approach 取代; 留作參考)</td></tr>
+</table>
+
+<h2>References</h2>
+
+<ul>
+<li><a href="https://williamlam.com/2026/05/vcf-9-1-new-http-offline-depot-support-for-vcf-installer-fleet-depot-service.html">VCF 9.1 HTTP offline depot — William Lam</a></li>
+<li><a href="https://vtam.nl/2025/08/21/how-to-create-your-own-nested-esxi-ova/">Nested ESXi OVA — vtam.nl</a></li>
+<li><a href="https://williamlam.com/2013/12/how-to-properly-clone-nested-esxi-vm.html">Clone nested ESXi cleanly (FollowHardwareMac) — William Lam</a></li>
+</ul>
+
+</body>
+</html>
