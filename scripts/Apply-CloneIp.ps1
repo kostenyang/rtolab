@@ -64,7 +64,11 @@ esxcli network ip interface ipv4 set -i vmk0 -t static -I "`$IP" -N "`$NETMASK"
 esxcli network ip route ipv4 add --gateway "`$GW" --network default
 esxcli network ip interface ipv4 set -i vmk0 -t static -I "`$IP" -N "`$NETMASK" -g "`$GW"
 
+# Set both short host and FQDN (ESXi 9.x 兩個欄位是分開的, --fqdn 不會同步 host)
+SHORT=`$(echo "`$HOSTNAME" | cut -d. -f1)
+esxcli system hostname set --host="`$SHORT" 2>/dev/null
 esxcli system hostname set --fqdn="`$HOSTNAME" 2>/dev/null
+esxcli system hostname set --domain="`$DOMAIN" 2>/dev/null
 
 esxcli network ip dns server remove --all 2>/dev/null
 esxcli network ip dns server add --server="`$DNS"

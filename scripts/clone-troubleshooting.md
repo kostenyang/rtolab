@@ -114,7 +114,25 @@ VMware Tools 的 `StartProgramInGuest` 在 ESXi 9.x 上跑出來的 root 進程,
 1. clone 剛部好不通 → 只能用 GuestOps 跑 `esxcli` 把 IP 設好
 2. clone IP 通了 → 改 SSH 進去做 persist (`auto-backup.sh`) 跟其他 privileged ops
 
-### C. Upstream MAC table 會 churn
+### C. vCenter 7.0u3: 不要直接 Import-VApp / New-VM 到 vApp 裡
+
+外層 vCenter 是 7.0u3, **不收**把 vApp 的 MoRef 當 ResourcePool 給 `CreateVM_Task` / `Import-VApp -Location <vapp>`. 直接這樣丟會炸 (rejected with InvalidArgument 或 silently 把 VM 落在 root RP).
+
+正確 pattern (Deploy-NestedESXi.ps1 / Deploy-FromGoldenOva.ps1 / Deploy-VcfInstaller.ps1 都這樣寫):
+
+```powershell
+# 1. 先 deploy 到 parent ResourcePool (Kosten)
+$vm = Import-VApp -Source $ova -OvfConfiguration $cfg -Name $vmName `
+                  -VMHost $vmhost -Datastore $ds -DiskStorageFormat Thin `
+                  -Location $rp -Force          # $rp = Get-ResourcePool 'Kosten'
+
+# 2. Deploy 完才用 vApp 的 sync API 搬進去 (沒 _Task 後綴, 是同步的)
+$vapp.ExtensionData.MoveIntoResourcePool(@($vm.ExtensionData.MoRef))
+```
+
+不要用 `Move-VM -VM $vm -Destination $vapp` — `Move-VM` 走 vMotion 語意, DRS 會嫌 "cannot find a host", 失敗.
+
+### D. Upstream MAC table 會 churn
 
 ```
 attempt  1: X
