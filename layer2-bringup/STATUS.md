@@ -1,74 +1,57 @@
-# Layer 2 Bringup — current status
+# Layer 2 Bringup — current status (2026-05-19)
 
-最後更新 2026-05-19, /goal "deploy VCF 5.2.1 + VCF 9 完成" 進行中.
+/goal: "deploy VCF 5.2.1 + VCF 9 完成" 中.
 
-## 已完成
+## ✅ Done
 
-| | 狀態 |
+| Item | State |
 |---|---|
-| 12 nested ESXi VM 部署 | ✓ 全 reachable @ 對應 IP |
-| 12 nested ESXi hostname/FQDN | ✓ kosten-vcf{521,90,91}-esx0[1-4].rtolab.local |
-| DNS forward + reverse (54 A + 56 PTR) | ✓ kosten AD 推完 |
-| 5.2.1 master state.tgz: FollowHardwareMac=1 + cert regen | ✓ |
-| 9.0 / 9.1 VCF Installer 部署 | ✓ HTTP 200 on /login |
-| 5.2.1 Cloud Builder 部署 (33GB OVA) | ✓ HTTP 200 on /login, Basic auth OK |
-| 5.2.1 nested ESXi SSL cert CN | ✓ regen 成 FQDN |
-| 5.2.1 nested ESXi NTP server | ✓ 192.168.114.200 |
-| 5.2.1 SDDC spec validation: 安全/憑證/SSH 階段 | ✓ pass |
+| 12 nested ESXi VM 部署 | ✓ 全 reachable |
+| ESXi hostname/FQDN/DNS/NTP/cert CN | ✓ |
+| 3 installers (9.0 + 9.1 VCF Inst + 5.2.1 CB) | ✓ web UI HTTP 200 |
+| `inventory/secrets/lab.yaml` 加 `vcf_installer` + `cloud_builder.root_pw` | ✓ |
+| **VCF 9.1 bringup spec schema validation PASSES** | ✓ |
+| **VCF 9.1 Security Configuration check PASSES** (cert/SSH/key) | ✓ |
+| `Deploy-VcfInstaller.ps1` | ✓ |
+| `Regen-EsxiCert.ps1` | ✓ |
+| `Bake-MasterFinalize.ps1` | ✓ |
+| `clone-troubleshooting.md` | ✓ |
+| VCF 9.x OpenAPI 抓回來放 `layer2-bringup/vcf91/vcf-installer-openapi.json` (gitignore'd) | ✓ |
 
-## 5.2.1 剩下硬卡關
+## ⛔ Outstanding hard blockers (need external resources)
 
-**ESXi build mismatch** — Cloud Builder 5.2.3 (`VMware-Cloud-Builder-5.2.3.0-25219033`) 寫死要 ESXi build `25205845` (= ESXi 8.0 U3l), 我們手上是 `24022510` (= ESXi 8.0 U3 GA, 從 OVA `Nested_ESXi8.0u3g_Appliance_Template_v1.ova` 出來).
-
-驗證錯誤 (一字不漏):
-```
-[ESXI_BUILD_LOWER.error] ESXi Host kosten-vcf521-esx0X.rtolab.local
-build is 24022510 but must be equal to 25205845
-```
-
-試過 `skipEsxBuildValidation: true` / `skipVersionChecks: true` — CB 5.2.3 不認, validation 仍 fail.
-
-### 解法二選一
-
-A) **下載 ESXi 8.0 U3l offline depot zip** (build 25205845) 從 customerconnect.vmware.com (需登入 + entitlement). 大小約 700 MB. 載到 jumpbox 後:
-```powershell
-# upload depot 到 datastore, 或 SCP 到每台 ESXi
-scp VMware-ESXi-8.0U3l-25205845-depot.zip root@192.168.114.50:/vmfs/volumes/datastore1/
-# SSH 進每台跑
-esxcli software profile update -d /vmfs/volumes/datastore1/VMware-ESXi-8.0U3l-25205845-depot.zip \
-    -p ESXi-8.0U3l-25205845-standard
-reboot
-```
-再重 export master OVA + 重部 clones.
-
-B) **找 5.2 (非 5.2.3) 的 Cloud Builder** 接受 8.0U3 GA — 但 5.2.1 已 deprecated, 5.2.2 也不一定接受.
-
-## 9.0 / 9.1 卡關
-
-**Bringup spec schema 不符 9.x API** — 我手刻的 `bringup.template.json` 是參考 5.2.1 (autodeployvcfm02.ps1) 加 VCF 9.x 假設. 實際 9.x validation 回:
+### 5.2.1 — ESXi build mismatch
+Cloud Builder 5.2.3 (the only OVA on disk) writes死要 ESXi build `25205845` (= 8.0U3l). 我們 nested ESXi 是 build `24022510` (= 8.0U3 GA). 沒 8.0U3l offline depot zip → 無法升級, 也無法繞 (試過 `skipEsxBuildValidation`, CB 不認).
 
 ```
-[EMPTY_BRINGUP_CONFIGURATION_FIELD.error] vSAN Specification missing for SddcSpec
-[MISSING_DVS_UPLINK_SPECIFICATION.error] vSphere Distributed Switch ... vmnicsToUplinks
-[VSP_NOT_PROVIDED.error] VCF service runtime specification must be present
+[ESXI_BUILD_LOWER.error] build is 24022510 but must be equal to 25205845
 ```
 
-### 解法二選一
+**解法**: 從 customerconnect.vmware.com 下 `VMware-ESXi-8.0U3l-25205845-depot.zip` (~700MB) → `esxcli software profile update` on 4 hosts → reboot → re-export OVA → redeploy clones → retry validation.
 
-A) **用 VCF Installer 9.x 的 web wizard** (UI 知道正確 schema):
-- https://192.168.114.34 (9.0)
-- https://192.168.114.5  (9.1)
-- 帳密 admin@local / VMware1!VMware1!
-- Wizard 一步步填, 最後它會 generate + POST 正確 spec.
-
-B) **抓 wizard 生成的 spec** (browser dev tools intercept POST `/v1/sddcs/validations` body), 拿回來填回 template, 之後 automation 才能跑.
-
-## 目前 commit
-
+### 9.0 / 9.1 — VCF depot binaries 缺
+9.1 spec schema 全過了, security 全過了. 卡在 "Versions and Bundles":
 ```
-4c9412f Regen-EsxiCert.ps1: SSH-driven /sbin/generate-certificates ...
-222131d layer2-bringup: pwsh 7 cert fix + 9.1 template progress
-3d6a460 Deploy-VcfInstaller.ps1 + ESXi hostname fix + vSphere 7 vApp gotcha doc
-6a20f5f docs: nested ESXi clone troubleshooting
-5635334 fix nested ESXi clones: rebind vmk0 MAC + correct gateway .254
+[COMPATIBLE_RELEASES_NOT_FOUND.error]   Could not retrieve supported releases
+[VALIDATE_COMPONENT_BINARIES.error]     Not all required component binaries for selected versions are available locally
 ```
+
+VCF Installer 沒 internet 到 `depot.vmware.com` (000 response), 也沒人 pre-download VCF 9.1 LCM bundles 給它. **這些 bundle 大概 50GB+**, 包含 vCenter ISO / NSX OVA / SDDC Manager appliance / ESXi depot / VCF Operations 三件套 / 等等. 需要:
+- VMware customer entitlement + token `tpkugIojkHvXMVu2Pf8V6ErxKIn8q7sG`
+- `vcf-download-tool-9.1.0.0.tar.gz` 跑 `binaries download --release 9.1.0` 把全套 pull 下來
+- 在 jumpbox 或另一台機架 offline depot server (HTTP, port 8888) 服務之 (參考 `E:\SCRIPT\vcf9offlinescript\create_vcf9_depot_server_v3.sh`, 已是 9.1 native HTTP no-auth depot 設定)
+- 把 installer 透過 `/v1/system/depot-config` API 接到 offline depot URL
+
+**短路徑** (如果 jumpbox 能下載): 在 jumpbox 跑 `E:\9.0\vcf-download-tool\bin\vcf-download-tool.bat binaries download --release 9.1.0 --depot-tool-config-path ...`, 看會不會直接拉.
+
+## 進度時間軸 (本 session)
+
+| Commit | 內容 |
+|---|---|
+| `5635334` | nested ESXi clone fix scripts |
+| `6a20f5f` | clone-troubleshooting.md (gateway .254 + vmk0 MAC + GuestOps sandbox + MAC churn) |
+| `3d6a460` | Deploy-VcfInstaller.ps1 + ESXi hostname fix + vSphere 7 vApp gotcha |
+| `4c9412f` | Regen-EsxiCert.ps1 (cert CN fix) |
+| `244a7d8` | STATUS.md initial blockers |
+| `cbe6eb3` | VCF 9.1 template schema 從 OpenAPI 重寫 — schema 過了 |
+| this commit | STATUS.md updated 反映 schema-pass + binaries-block |
