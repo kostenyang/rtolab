@@ -198,4 +198,4 @@ artifacts:
     nested_esxi_ova:    E:/5.2.1/Nested_ESXi8.0u3g_Appliance_Template_v1.ova
     esxi_iso_local:     E:/5.2.1/VMware-VMvisor-Installer-8.0U3-24022510.x86_64.iso
     esxi_iso_datastore: '[vsanDatastore (1)] iso/esxi-8.0u3-5.2.1.iso'
-    cloud_builder_ova:  E:/5.2.1/VMware-Cloud-Builder-5.2.3.0-25219033_OVF10.ova
+    cloud_builder_ova:  E:/5.2.1/VMware-Cloud-Builder-5.2.1.0-24307856_OVF10.ova
