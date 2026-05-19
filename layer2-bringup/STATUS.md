@@ -1,49 +1,72 @@
-# Layer 2 Bringup — current status (2026-05-19 10:44)
+# Layer 2 Bringup — current status (2026-05-19 ~12:30)
 
-/goal: "deploy VCF 5.2.1 + VCF 9 完成" 進行中. 兩個 depot download 同時跑.
-
-## ✅ Done
+## ✅ Done (massive progress this session)
 
 | Item | State |
 |---|---|
-| 12 nested ESXi VM 部署 + reachable | ✓ |
-| ESXi hostname/FQDN/DNS/NTP/cert CN | ✓ |
+| 12 nested ESXi reachable + hostname/FQDN/DNS/NTP/cert CN ok | ✓ |
 | 3 installers (9.0 + 9.1 VCF Inst + 5.2.1 CB) web UI live | ✓ |
-| `inventory/secrets/lab.yaml` 加 `vcf_installer.*` + `cloud_builder.root_pw` | ✓ |
-| **VCF 9.1 bringup spec schema validation PASSES** (Deployment Spec + Security) | ✓ |
-| VCF 9.x OpenAPI schema 全 match (datastoreSpec.vsanSpec / vmnicsToUplinks / vspClusterSpec / IpRange.startIpAddress / vlanId int / teaming lowercase / NSX TEP IpAddressPool / nsxTeamings / nsxtSwitchConfig OVERLAY+VLAN tz) | ✓ |
-| `Deploy-VcfInstaller.ps1` / `Regen-EsxiCert.ps1` / `Bake-MasterFinalize.ps1` / `clone-troubleshooting.md` / `Configure-LocalDepot.ps1` | ✓ |
-| VCF download tool token 驗證可用 | ✓ |
+| `inventory/secrets/lab.yaml` 補 `vcf_installer.*` + `cloud_builder.root_pw` | ✓ |
+| VCF 9.1 SddcSpec schema 全套對 (vsanSpec → datastoreSpec, vmnicsToUplinks, vspClusterSpec, IpRange.startIpAddress, vlanId int, teaming lowercase, NSX TEP IpAddressPool, nsxTeamings, nsxtSwitchConfig OVERLAY+VLAN tz) | ✓ |
+| **VCF 9.1 Deployment Specification 階段 PASSES** | ✓ |
+| **VCF 9.1 Security Configuration 階段 PASSES** (cert/SSH/key) | ✓ |
+| Scripts: `Deploy-VcfInstaller.ps1` `Regen-EsxiCert.ps1` `Bake-MasterFinalize.ps1` `Configure-LocalDepot.ps1` `clone-troubleshooting.md` | ✓ |
+| VCF 9.1 download tool token 驗證 (releases list/binaries download) | ✓ |
+| VCF 9.1 binaries depot 拉下 41.3 GB / ~46 GB (6/7 main components 100%, 1 mid-flight when java died) | ✓ |
+| ESXi 8.0U3i build `25205845` depot zip 拉到 `E:\vcf-depot-esxi-25205845` (629 MB) | ✓ |
+| IIS 8888 HTTP depot serving `E:\vcf-depot-91` (檔案 200 + range request 206 都 ok, MIME 全套加完 .ova .tar .tgz .iso .sig .yaml .xml) | ✓ |
+| **VCF Installer 9.1 `/v1/system/settings/depot` PUT 成功** (`DEPOT_CONNECTION_SUCCESSFUL`) | ✓ |
+| **End-to-end validation 跑得到 vMotion/vSAN/NSX Network 階段** (之前只能跑到 Deployment Spec) | ✓ |
 
-## 🔄 In progress
+## ⛔ Outstanding blockers
 
-### VCF 9.1 depot download (schtasks `VcfDepot91`, java PID 11500)
-- Target: `E:\vcf-depot-91`, ~46GB total
-- Components: VCF_OPS_CLOUD_PROXY (2.8) + VCENTER (12) + VRA (14.9) + VROPS (3.1) + NSX (7.5) + SDDC_MANAGER (2.3) + VIDB (1.0)
-- Speed: ~4-5 Mbps from `dl.broadcom.com`. ETA ~18+ hours.
-- Already on disk: ~7GB (partial files resumed from previous attempts via HTTP 206 Range)
-- Monitor: `bwo3263b3` (30min heartbeat, emits DONE on ≥44GB)
+驗證再跑時剩下這些, 大致分三類:
 
-### VCF 5.2.3 ESXi component download (schtasks `VcfDepot521Esxi`, java PID 16204)
-- Target: `E:\vcf-depot-521-esxi` — 只下 ESX_HOST component
-- For: 升 5.2.1 nested hosts 8.0U3 GA (`24022510`) → 8.0U3l (`25205845`) 解 CB 5.2.3 build check
-- ~700 MB - 3 GB
+### A. Versions and Bundles — 缺 bundle 結構 metadata
+```
+[FAILED_TO_VALIDATE_COMPONENT_VERSIONS_NO_RELEASE.error]
+  No release data found for version 9.1.0.0
+[FAILED_TO_VALIDATE_COMPONENT_BINARIES_NULL_VERSION.error]
+  Could not validate component binaries for the following components:
+  VCF services runtime, VMware vCenter, Salt master, SDDC Manager,
+  Fleet lifecycle, SDDC lifecycle, VMware NSX, Telemetry, Software
+  depot, Salt RaaS, because no version is defined for them in release
+  9.1.0.0
+```
+**原因**: depot tool `--automated-install` 拉下了 binary 檔 (OVA/ISO/tar), 但沒拉 per-bundle metadata XML (`/COMP/<X>/vmw/<bundleId>/upgrade_info.xml` 之類). Broadcom dl 確認那些 metadata 是公開的 (curl HTTPS HEAD 拿得到 133KB), 是 download tool 沒主動抓.
 
-## ⏭️ Pending (autorunnable once both depots done)
+**未來修法**: 改用 `download-spec-file` mode 跑下 GET 拉所有 bundle 結構; 或手動 curl 補 metadata.
 
-```powershell
-# 1. Configure VCF Installer 9.1 to use local depot
-pwsh layer2-bringup/vcf91/Configure-LocalDepot.ps1
+### B. ESX 校驗 — 跳過 (skipChecks)
+```
+[ESXI_VERSION_VALIDATION_STATUS.error] Validate ESX Host version and build failed
+[VSAN_ESA_HOST_HCL_COMPATIBLE_ERROR.error] Host ... is not HCL compatible
+[ESXI_SERVICE_RUNNING.warning] ntpd not running
+```
+**修法**: 重新加 `skipChecks` block 進 `Generate-BringupSpec.ps1` (之前 schema 重寫過程刪掉了). 加 `ESX_VERSION_CHECK` `VSAN_ESA_HCL_CHECK` `NIC_COUNT_CHECK` 等.
 
-# 2. Re-validate (Versions and Bundles 應該過了)
-$env:VCF_INSTALLER_PW = 'VMware1!VMware1!'
-pwsh layer2-bringup/vcf91/Submit-Bringup.ps1 -VcfInstaller https://192.168.114.5 -ValidateOnly
+### C. vmkping VLAN 115/116/117 MTU 9000 失敗 (環境硬限制)
+```
+[VALIDATE_ESXI_VMKPING.error] ESX Host 'kosten-vcf91-esx01' -> '192.168.115.17'
+  VLAN '115' with MTU 9000 fail to vmkping
+```
+**原因**: VLAN 114 (mgmt) physical switch 是 trunk 過了, 但 115/116/117 可能 physical switch 沒 trunk 過, 或外層 vDS portgroup 設定不對讓 nested ESXi 用這幾個 VLAN.
 
-# 3. 過了的話 submit bringup (要 1-2 hr)
-pwsh layer2-bringup/vcf91/Submit-Bringup.ps1 -VcfInstaller https://192.168.114.5
+Outer vDS `selab-dswitch` MTU=9000 ok; trunk portgroup VLAN 0-4094 ok; MAC learning + forged transmits ok. 但實體 switch 可能只有 114 通過. → 需要實體網路調整 (user 側).
 
-# 4. 5.2.1 esxi 升 8.0U3l + re-export OVA + redeploy clones
-# (從 E:\vcf-depot-521-esxi\PROD\COMP\ESX_HOST\ 取 depot zip)
+## ⏭️ 下一步
+
+1. 加回 `skipChecks` 解 B
+2. 補 bundle metadata 解 A (或拿到 download spec file)
+3. C 看 user 那邊能否打通 physical VLAN 115/116/117
+
+## 5.2.1
+
+```
+5.2.1 CB validation 已過 Security/SSH/Cert 階段, 卡 ESXi build 24022510 ≠ 25205845.
+User 自己會抓另一個 CB 版本 (可能 5.2 GA 收 8.0U3 GA).
+8.0U3i depot ISO 25205845 已下到 E:\vcf-depot-esxi-25205845, 隨時可拿來升 4 台
+nested ESXi (esxcli software profile update + reboot + 重 export OVA + redeploy).
 ```
 
 ## 進度時間軸
@@ -54,8 +77,7 @@ pwsh layer2-bringup/vcf91/Submit-Bringup.ps1 -VcfInstaller https://192.168.114.5
 | `6a20f5f` | clone-troubleshooting.md |
 | `3d6a460` | Deploy-VcfInstaller.ps1 + ESXi hostname fix + vSphere 7 vApp gotcha |
 | `4c9412f` | Regen-EsxiCert.ps1 |
-| `244a7d8` | STATUS.md initial |
-| `cbe6eb3` | VCF 9.1 template schema 從 OpenAPI 重寫 — schema 過了 |
-| `6027ebf` / `7b76cce` | STATUS.md updates |
-| `2379e39` | Configure-LocalDepot.ps1 |
-| this | STATUS.md (parallel downloads) |
+| `244a7d8`/`6027ebf`/`7b76cce`/`9a36806` | STATUS.md 一路 update |
+| `cbe6eb3` | VCF 9.1 template schema 重寫 (從 OpenAPI 抽出真的 schema) |
+| `2379e39` | Configure-LocalDepot.ps1 (PS HttpListener — 後被 IIS 取代) |
+| this | STATUS.md (IIS depot + Installer 接上, validation 跑到 network 階段, 剩 3 類 blocker) |
