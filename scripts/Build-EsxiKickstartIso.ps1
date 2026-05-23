@@ -159,8 +159,8 @@ install --firstdisk --overwritevmfs --novmfsondisk
 # Network (static IP, VLAN-tagged inside ESXi)
 network --bootproto=static --device=vmnic0 --ip=$mgmtIp --netmask=$netmask --gateway=$gateway --hostname=$hostname --nameserver=$dns --vlanid=$vlan
 
-# Reboot after install
-reboot --noeject
+# Reboot after install (eject media so the post-install reboot lands on disk, not the installer)
+reboot
 
 %firstboot --interpreter=busybox
 
@@ -183,8 +183,8 @@ Write-Host "[5/5] building ISO..."
 $null = New-IsoFileWindows -Source $tmpDir.FullName -Path $OutputIsoLocal `
                            -BootFile $efibootCopy -Media DVDPLUSR -Title 'ESXI' -Force
 
-Remove-Item $efibootCopy -Force
-Remove-Item -Recurse -Force $tmpDir.FullName
+Remove-Item $efibootCopy -Force -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $tmpDir.FullName -ErrorAction SilentlyContinue
 
 Write-Host "✓ ISO built: $OutputIsoLocal ($([math]::Round((Get-Item $OutputIsoLocal).Length/1MB,0)) MB)" -ForegroundColor Green
 

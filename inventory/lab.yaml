@@ -30,7 +30,7 @@ infra:
   # Nested ESXi deploy 目標 (Layer 1 Deploy-NestedESXi.ps1 用)
   deployment:
     resource_pool:       Kosten
-    datastore:           "vsanDatastore (1)"     # 留 vsanDatastore (1), 注意空格 + 括弧
+    datastore:           "vsanDatastore-RTO"     # post-hw-repair: real datastore is vsanDatastore-RTO (was vsanDatastore (1))
     portgroup:           trunk                    # vDS portgroup, VLAN Trunk [0-4094]
     enable_mac_learning: true                     # nested ESXi 上 guest VM 需要 (或 promiscuous)
 

@@ -171,6 +171,111 @@ th { background: #14365c; color: white; }
 <tr><td>9.1 bring-up</td><td>⏸ pending — schema OK 但 depot bundle metadata 缺</td></tr>
 </table>
 
+<h2>Status (2026-05-20)</h2>
+
+<table>
+<tr><th>環境</th><th>狀態</th></tr>
+<tr><td>5.2.1 bring-up retry (sddcId dae68139)</td><td>🚀 IN_PROGRESS — 1st vCenter deploy attempt failed (post-deploy ping unreachable), 2nd attempt actively uploading VCSA OVA → kosten-vcf521-esx01 at 17:55 UTC.  vcsa-deploy.bin PID alive.</td></tr>
+<tr><td>9.1 depot (offline)</td><td>✅ 已完整: <code>E:\vcf-depot-91\PROD</code> 44.7 GB on jumpbox, 大檔對照 manifest 全部 size match (vcfa-bundle 15295 MB, VCSA 12254.7 MB, NSX OVA 7697.3 MB, SDDC Mgr OVA 2334.5 MB, Ops Cloud Proxy 2824.7 MB). 之前 runner.log 雖然 exit=-1, 但檔案實際下載完整 — 應該是 PowerShell runner script 退出時 race condition, 不是 tool 本身失敗.</td></tr>
+<tr><td>9.1 depot server (HTTP)</td><td>✅ IIS site <code>VcfDepot</code> on jumpbox 172.16.10.32:8888, physical path = <code>E:\vcf-depot-91</code>. Installer 9.1 已 PUT depot config + status = DEPOT_CONNECTION_SUCCESSFUL.</td></tr>
+<tr><td>9.1 ESXi hosts (4 台)</td><td>✅ all on ESXi 9.1.0 build 25370933, NestedHV=true, vmx-19, only vmk0/vSwitch0 (no leftover state), vSAN cluster enabled (single-host fresh state).</td></tr>
+<tr><td>9.1 DNS (vsp/vspp 等)</td><td>✅ kosten-vcf91-vsp .43, vspp .44, sddc/vc/nsx/nsxn1/esx01-04 全部 forward+reverse resolves.</td></tr>
+<tr><td>9.1 bring-up</td><td>⏸ pending — 等 5.2.1 完成 (用戶指示 "5.2.1好 再部9.1"). spec 已 generated, validation 之前 PASS.</td></tr>
+<tr><td>9.0 retry 3 (sddcId 01994220)</td><td>❌ COMPLETED_WITH_FAILURE — ovftool "Duplicate name 'kosten-vcf90-vc' on target". 4 個 9.0 ESXi host 上 vim-cmd / Get-VM 都查不到該 VM, /vmfs/volumes/vsanDatastore 也沒 kosten-vcf90 directory. 可能是 ESXi inventory cache 或 vSAN namespace orphan. 暫緩 — 用戶 prio 是 5.2.1 → 9.1.</td></tr>
+</table>
+
+<h2>Decision Log (2026-05-20)</h2>
+
+<div class="tradeoff">
+<span class="label">Decision</span> — <strong>Offline depot: IIS-on-jumpbox vs Ubuntu VM</strong>
+<p>用戶最初指示「linux裝在底層vc 然後dns 記得加正反解」 — 計劃在 outer vCenter 部 Ubuntu 20.04 VM (kosten-depot.rtolab.local @ 192.168.114.65, nginx).</p>
+<p>實際發現: jumpbox 上已經有運作中的 IIS site <code>VcfDepot</code> 在 port 8888, 物理路徑 = E:\vcf-depot-91 (44.7 GB 完整 depot 已下載). VCF Installer 9.1 (192.168.114.5) 可正常 reach 172.16.10.32:8888 → curl manifest HTTP 200, 抓 2.4 GB OVA 25 秒完成.</p>
+<p><strong>選擇</strong>: 用既有 IIS depot, 不另外部 Ubuntu VM. 理由: 已經運作, depot 完整, Installer 已連到. DNS <code>kosten-depot.rtolab.local → .65</code> 留著但目前不使用. 缺點: depot 綁在 jumpbox 上 (不是 production 形式), 如需 Linux nginx 之後可遷移 — 把 E:\vcf-depot-91 整個 rsync 到 Ubuntu VM 即可, depot URL 結構 (PROD/...) 跟 nginx 相容.</p>
+</div>
+
+<div class="tradeoff">
+<span class="label">Decision</span> — <strong>9.0 retry vs 跳過直接做 9.1</strong>
+<p>用戶最新指示 "5.2.1好 再部9.1", 沒提 9.0. 9.0 retry 3 在 vCenter deploy 階段卡 "Duplicate name on target" 但找不到 VM 來源, 排查時間不確定.</p>
+<p><strong>選擇</strong>: 暫緩 9.0, 先完成 5.2.1+9.1 (用戶最新指令). 9.0 留到 5.2.1+9.1 SUCCESS 後再排查 (預計 reboot 4 個 9.0 host clear inventory cache + 強 destroy vSAN namespace + retry).</p>
+</div>
+
+<div class="open">
+<span class="label">ROOT CAUSE FOUND</span> — <strong>Nested-in-nested 網路不通: outer dVPG 沒開 MAC learning</strong>
+<p>5.2.1 bringup 連續 3 次卡在 "Deploy and Configure vCenter Server" — vcsa-deploy 每次撐 30 分鐘等 VCSA appliance REST (port 5480) 然後 timeout. 排查發現 VCSA VM 本體完全正常 (開機/guest tools/eth0 IP 192.168.114.56/lighttpd listen 5480/self-curl HTTP 200), 但 <strong>VCSA 只 ping 得到自己所在的 nested ESXi host (.50), 其餘 VLAN 114 位址 (.54 CB / .200 DNS / .254 gateway / .51 sibling host) 全部 ARP FAILED</strong>.</p>
+<p>原因: 外層 <code>selab-dswitch</code> 上, nested ESXi VM (.50-.53/.14-.17/.30-.33) 掛在 <code>trunk</code> dVPG (MAC learning + promiscuous + forged + mac-change 全 ON), 但 VCF appliance (CB/Installer/DNS) 掛在 <code>selab-dswitch-pg114</code> dVPG — 該 PG 四個都是 <strong>OFF</strong>. VCSA 在 nested ESXi 裡, 它的 MAC 跟外層認得的 nested-host vmnic MAC 不同; pg114 沒開 MAC learning → outer vDS 不知道往哪送 VCSA MAC 的 unicast → CB 回 VCSA 的封包全被丟. (nested host 自己的 vmk0 用 vmnic MAC 送, outer 認得, 所以 host 一直通 — 只有 host 內的 VM 不通.)</p>
+<p><strong>修正 (第一版, 不完整)</strong>: 在 pg114/115/116/117 開 Promiscuous + ForgedTransmits + MacChanges + MacLearning. 套用後 VCSA 還是不通.</p>
+<p><strong>修正 (第二版, 正確)</strong>: 發現 <code>trunk</code> dVPG (12 台 nested ESXi 掛這) 同時開了 Promiscuous=true 跟 MacLearning=true — <strong>VMware 規定這兩個互斥, 同時開等於 MAC learning 失效</strong>. 正確 nested ESXi 設定 = <strong>MAC Learning ON + AllowUnicastFlooding ON + ForgedTransmits ON, Promiscuous OFF, MacChanges OFF</strong>. 對 <code>trunk</code> + <code>pg114/115/116/117</code> 五個 dVPG 全部套用此設定 (用戶 2026-05-20 兩次授權). 這是 nested-in-nested VCF lab 的必要前置 — 5.2.1/9.0/9.1 三版的 inner vCenter/NSX/SDDC Mgr/Ops deploy 都會踩到.</p>
+</div>
+
+<div class="tradeoff">
+<span class="label">Note</span> — <strong>Cloud Builder 失敗後重試: 用 PATCH 不是 POST</strong>
+<p>CB 5.2.1 一次只能有一個 bringup. 失敗後 <code>POST /v1/sddcs</code> 會回 <code>BRINGUP_ALREADY_EXISTS</code>; <code>DELETE</code> / <code>POST /{id}</code> / <code>POST /{id}/retry</code> 全部回 VCF_RUNTIME_ERROR. 實測有效的 retry = <code>PATCH /v1/sddcs/{id}</code> 帶完整 spec body — 會 resume 失敗的 bringup (保留已 SUCCESS 的 23 個 task, 從 Deploy vCenter 重跑).</p>
+</div>
+
+<h2>Status (2026-05-20 後半 — 大改動)</h2>
+
+<div class="open">
+<span class="label">用戶手動操作</span> — <strong>環境大幅變動</strong>
+<p>用戶手動處理了幾件事 (磁碟壓力 + 重新規劃): (1) 刪掉所有 nested ESXi (5.2.1 + 9.0 + 9.1 全部) 騰 vsanDatastore(1) 空間 → 5.2.1 bringup 無法續做, 5.2.1 放棄; (2) goal 收斂成「裝完 9.1」; (3) 9.0 的 4 台 nested ESXi 早先已由我刪除 (保留 installer-90).</p>
+<p><strong>結果</strong>: 重新只做 9.1. 9.1 的 4 台 nested ESXi 從 golden OVA 重部到各 SELAB host 的 <strong>local datastore</strong> (esxi-qct-1/3/4/5, 用戶指示「ESXi 部在 local disk」), 全部修好 (clone MAC/IP/cert/SSH/NestedHV).</p>
+</div>
+
+<div class="tradeoff">
+<span class="label">Decision</span> — <strong>VCF 9.1 offline depot = 專屬 Linux VM, 用 lcm-bundle-transfer-util</strong>
+<p>原 IIS depot (E:\vcf-depot-91, 用 <code>vcf-download-tool binaries download --automated-install</code> 抓的) <strong>格式錯</strong>: 它抓的是 raw <code>.ova/.iso</code>, 但 VCF Installer 9.1 的 LCM bundle-download 要的是 <code>.tar</code> LCM bundle (路徑 <code>/COMP/&lt;COMP&gt;/...-Upgrade-...tar</code>). 實測 PATCH /v1/bundles/{id} 下載失敗: <code>BundleNotFoundException ... VCF-SDDC-Manager-Appliance-Upgrade-9.1.0.0.25371088.tar</code>.</p>
+<p>正確工具 = <code>lcm-bundle-transfer-util</code> (9.0.2 版, 在 vcf-download-tool 套件內, 跨平台含 lin64 JRE). 注意:
+<ul>
+<li><code>--setUpOfflineDepot</code> 產生正確 HTTP offline-depot 結構, 但<strong>不能 scope 版本</strong> — 它要抓<strong>全部</strong> VCF 版本 = 磁碟需求 886 GB (空間檢查直接 fail). <code>-sv</code> 沒用.</li>
+<li><code>--download -p 9.1.0.0</code> 可<strong>scope 到 9.1</strong> (~50-60GB), 產生 LCM bundle 結構 (bundles/ + lcm/manifest/ + manifests/ + index.v3). token 要用 <code>--depotDownloadToken</code> (字串, 不是 file); stdin 要餵多個 Y (<code>yes Y |</code>) 因為會問 Aria bundle.</li>
+</ul></p>
+<p><strong>選擇</strong>: 用 <code>--download -p 9.1.0.0</code> 抓 9.1 LCM bundle 到專屬 Ubuntu depot VM. depot VM = <code>rtolab-depotsrv</code> @ 172.16.10.50, 部在 Mgmt-Cluster / esxi-vol3 (用戶指示). 用 Ubuntu 20.04 cloud-image OVA + NoCloud seed ISO (CIDATA, IMAPI2 建的) 自動設密碼/IP — 因為 cloud-init guestinfo datasource 在 20.04 太舊、OVF property 設不進、vCenter customization 不設密碼. nginx 服務 /depot2, Installer 9.1 跨網段 (172.16.10.x ↔ 192.168.114.x routing) 連得到.</p>
+</div>
+
+<div class="open">
+<span class="label">Note</span> — <strong>Mgmt-Cluster 沒 trunk VLAN 114</strong>
+<p>用戶想把 installer 都搬到 Mgmt-Cluster (172.16.10.1/2/3). 實測該 cluster 的 Quanta 實體 switch port (port 17, native VLAN 1) <strong>沒 trunk VLAN 114</strong> — CB 521 搬過去後 .54 不可達 (但 5.2.1 棄用, CB 不需網路, 留著). installer-90/91 因此<strong>留在 SELAB-Cluster</strong>. depot VM 改放 172.16.10.x (VLAN 10, Mgmt-Cluster 的 mgmt 網段, 跟 jumpbox 同段、可 routing 到 VLAN 114).</p>
+</div>
+
+<h2>Commands Used (2026-05-20)</h2>
+
+<pre><code># 1. Query CB API for 5.2.1 bringup status (basic auth, NOT JWT — 5.2.1 uses old REST)
+curl -sk -u 'admin:VMware1!VMware1!' https://192.168.114.54/v1/sddcs/&lt;sddcId&gt;
+
+# 2. SSH-via-GuestOps to CB to inspect bringup log + vcsa-deploy
+Invoke-VMScript -VM (Get-VM vcf-cloudbuilder-521) -ScriptText &lt;bash&gt; -ScriptType Bash -GuestCredential root
+
+# 3. Probe IIS depot from Installer 9.1 (proves cross-subnet reachability)
+curl -s -o /dev/null -w 'HTTP=%{http_code} size=%{size_download}\n' http://172.16.10.32:8888/PROD/metadata/manifest/v1/vcfManifest.json
+
+# 4. Verify Installer 9.1 depot config (JWT auth)
+POST https://192.168.114.5/v1/tokens body={"username":"admin@local","password":"..."} → accessToken
+GET  https://192.168.114.5/v1/system/settings/depot  Authorization: Bearer &lt;token&gt;
+
+# 5. Compare depot file sizes vs manifest expected (PowerShell)
+$m = Get-Content -Raw E:\vcf-depot-91\PROD\metadata\manifest\v1\vcfManifest.json | ConvertFrom-Json
+Get-ChildItem E:\vcf-depot-91\PROD\COMP -Recurse -File | Where-Object Length -gt 500MB | Format-Table Length,Name
+
+# 6. 9.1 nested ESXi state inspection (SSH via Posh-SSH)
+ssh root@192.168.114.{14..17} 'esxcli system version get; esxcli vsan cluster get;
+   esxcli storage core device list | grep -E "^t10|^naa|^eui|Is SSD";
+   esxcli network ip interface list | grep ^vmk;
+   esxcli network vswitch standard list | grep ^vSw'
+
+# 7. Enable MAC learning + promisc on outer lab dVPGs (the nested-networking fix)
+#    PowerCLI: ReconfigureDVPortgroup_Task with DVSMacManagementPolicy + DVSMacLearningPolicy
+#    on selab-dswitch-pg114 / pg115 / pg116 / pg117 — AllowPromiscuous/ForgedTransmits/
+#    MacChanges=true, MacLearningPolicy.Enabled=true, AllowUnicastFlooding=true, Limit=4096
+
+# 8. Re-enable SSH on nested ESXi via GuestOps (failed bringup disables it)
+Run-CloneCmd.ps1 -VMName vcf-m02-esx0N-521 -Command 'vim-cmd hostsvc/enable_ssh; vim-cmd hostsvc/start_ssh'
+
+# 9. Reset nested hosts before retry + remove leftover svc-vcf accounts
+Reset-NestedEsxiForBringup.ps1 -EsxiHosts @('192.168.114.50',..,'.53')
+Run-CloneCmd.ps1 -VMName vcf-m02-esx0N-521 -Command 'esxcli system account remove --id=svc-vcf-kosten-vcf521-esx0N'
+
+# 10. Cloud Builder retry after failure (PATCH, not POST — POST gives BRINGUP_ALREADY_EXISTS)
+PATCH https://192.168.114.54/v1/sddcs/{sddcId}  body=&lt;full bringup spec JSON&gt;</code></pre>
+
 <h2>Key Scripts</h2>
 
 <table>
