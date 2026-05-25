@@ -1,0 +1,18 @@
+{
+  "_comment": "VCF 9.1 rtolab bringup — deployed component FQDNs and credentials (lab passwords, not prod).",
+  "components": [
+    {"componentName": "Hosts", "FQDN": "kosten-vcf91-esx01.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}]},
+    {"componentName": "Hosts", "FQDN": "kosten-vcf91-esx02.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}]},
+    {"componentName": "Hosts", "FQDN": "kosten-vcf91-esx03.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}]},
+    {"componentName": "Hosts", "FQDN": "kosten-vcf91-esx04.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}]},
+    {"componentName": "VCF Operations", "FQDN": "kosten-vcf91-ops.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}, {"type": "Administrator credentials", "user": "admin", "password": "VMware1!VMware1!"}]},
+    {"componentName": "Cloud Proxy", "FQDN": "kosten-vcf91-ops-coll.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}]},
+    {"componentName": "VCF Management Services", "FQDN": "kosten-vcf91-vspp.rtolab.local", "credentials": [{"type": "SSH credentials", "user": "vmware-system-user", "password": "VMware1!VMware1!"}]},
+    {"componentName": "VCF Automation", "FQDN": "kosten-vcf91-auto.rtolab.local", "credentials": [{"type": "Administrator credentials", "user": "admin", "password": "VMware1!VMware1!"}]},
+    {"componentName": "VCF Automation", "FQDN": "kosten-vcf91-vcfa-platform.rtolab.local", "credentials": [{"type": "SSH credentials", "user": "vmware-system-user", "password": "VMware1!VMware1!"}]},
+    {"componentName": "vCenter", "FQDN": "kosten-vcf91-vc.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}, {"type": "Administrator credentials", "user": "administrator@vsphere.local", "password": "VMware1!VMware1!"}]},
+    {"componentName": "NSX Manager", "FQDN": "kosten-vcf91-nsx.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}, {"type": "Administrator credentials", "user": "admin", "password": "VMware1!VMware1!"}, {"type": "Audit credentials", "user": "audit", "password": "VMware1!VMware1!"}]},
+    {"componentName": "SDDC Manager", "FQDN": "kosten-vcf91-sddc.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}, {"type": "VCF credentials", "user": "vcf", "password": "VMware1!VMware1!"}, {"type": "Administrator credentials", "user": "admin@local", "password": "VMware1!VMware1!"}]}
+  ],
+  "dnsServer": "192.168.114.200"
+}

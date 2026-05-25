@@ -95,6 +95,43 @@ vcf:
           range_start: 192.168.117.32
           range_end:   192.168.117.95
         vcf_installer: { fqdn: kosten-vcf91-inst.rtolab.local,  ip: 192.168.114.5 }
+        # NSX Edge cluster (deployed as part of bringup via fleet when included in spec)
+        edge_cluster:
+          name: vcf-m02-edge-cl01
+          form_factor: MEDIUM
+          mtu: 1600
+          edges:
+            - { fqdn: kosten-vcf91-en01.rtolab.local, mgmt_ip: 192.168.114.70, uplink_ip: 192.168.114.72 }
+            - { fqdn: kosten-vcf91-en02.rtolab.local, mgmt_ip: 192.168.114.71, uplink_ip: 192.168.114.73 }
+          tep_range: { start: 192.168.117.28, end: 192.168.117.31 }   # 4 IPs (2 per edge)
+          uplink_vlan: 114
+          t0_routing: STATIC
+        # License Server (required when bringup spec includes Automation/Ops)
+        license_server:
+          fqdn:    kosten-vcf91-lic.rtolab.local
+          fqdn_ip: 192.168.114.85
+        # VCF Identity Broker (VIDB — required when bringup spec includes Automation/Ops)
+        vidb:
+          fqdn:    kosten-vcf91-vidb.rtolab.local
+          fqdn_ip: 192.168.114.86
+          size:    small
+        # VCF Operations (single node lab) + Collector (deployed via bringup vcfOperationsSpec / vcfOperationsCollectorSpec)
+        operations:
+          fqdn:           kosten-vcf91-ops.rtolab.local
+          fqdn_ip:        192.168.114.75
+          collector_fqdn: kosten-vcf91-ops-coll.rtolab.local
+          collector_ip:   192.168.114.76
+          appliance_size: small
+        # VCF Automation (deployed via bringup vcfAutomationSpec — K8s services on VSP + appliance VM)
+        automation:
+          fqdn:          kosten-vcf91-auto.rtolab.local
+          fqdn_ip:       192.168.114.77
+          platform_fqdn: kosten-vcf91-vcfa-platform.rtolab.local   # distinct from VSP's platformFqdn (validator strict)
+          platform_ip:   192.168.114.87
+          ip_pool:       [192.168.114.78, 192.168.114.79, 192.168.114.80, 192.168.114.81, 192.168.114.82, 192.168.114.83]
+          internal_cluster_cidr: 172.27.0.0/16
+          node_prefix:   vcfa
+          size:          small
       vmotion_range: { start: 192.168.115.14, end: 192.168.115.17 }
       vsan_range:    { start: 192.168.116.14, end: 192.168.116.17 }
 

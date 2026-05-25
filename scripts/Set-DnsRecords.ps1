@@ -102,6 +102,23 @@ foreach ($v in $targetVersions) {
         Add-Rec $md.operations.fleet_fqdn     ($md.operations.fleet_ip     ?? '192.168.114.41') "[$v] Fleet Mgmt"
         Add-Rec $md.operations.collector_fqdn ($md.operations.collector_ip ?? '192.168.114.42') "[$v] Collector"
     }
+    if ($md.edge_cluster -and $md.edge_cluster.edges) {
+        foreach ($e in $md.edge_cluster.edges) {
+            Add-Rec $e.fqdn $e.mgmt_ip "[$v] NSX Edge VM"
+        }
+    }
+    if ($md.automation -and $md.automation.fqdn) {
+        Add-Rec $md.automation.fqdn $md.automation.fqdn_ip "[$v] VCF Automation"
+        if ($md.automation.platform_fqdn) {
+            Add-Rec $md.automation.platform_fqdn $md.automation.platform_ip "[$v] VCF Automation platform"
+        }
+    }
+    if ($md.license_server -and $md.license_server.fqdn) {
+        Add-Rec $md.license_server.fqdn $md.license_server.fqdn_ip "[$v] License Server"
+    }
+    if ($md.vidb -and $md.vidb.fqdn) {
+        Add-Rec $md.vidb.fqdn $md.vidb.fqdn_ip "[$v] VIDB Identity Broker"
+    }
     foreach ($h in $inv.hosts_by_version[$v]) {
         Add-Rec $h.fqdn         $h.mgmt_ip    "[$v] $($h.name) mgmt vmk"
         Add-Rec $h.vmotion_fqdn $h.vmotion_ip "[$v] $($h.name) vmotion vmk"
