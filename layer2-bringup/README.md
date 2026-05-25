@@ -76,6 +76,28 @@ DNS 三版本 FQDN 共存（[ip-plan.md](../inventory/ip-plan.md)），所以 sw
 3. `pwsh ./layer1-nested/Prepare-NestedESXi.ps1` 套 vSAN/LSOM workaround
 4. `cd layer2-bringup\<vcfXX>; pwsh .\New-VcfLab.ps1 ...`
 
+## 元件密碼設定
+
+每個部署元件的密碼定義在 **SddcSpec JSON**（`generated-bringup.json`）裡，VCF Installer 部署時直接套用。各元件對應欄位如下：
+
+| 元件 | SddcSpec 欄位 |
+|---|---|
+| SDDC Manager | `sddcManagerSpec.rootPassword` / `sshPassword` / `localUserPassword` |
+| vCenter | `vcenterSpec.rootVcenterPassword` / `adminUserSsoPassword` |
+| NSX Manager | `nsxtSpec.rootNsxtManagerPassword` / `nsxtAdminPassword` / `nsxtAuditPassword` |
+| ESXi hosts | `hostsSpecs[].credentials.password` |
+| VCF Automation / Ops 等 | `vcfAutomationSpec` / `vcfOperationsSpec` 裡的對應 password 欄位 |
+
+密碼從 `inventory/secrets/lab.yaml`（sops 加密）透過 `Generate-BringupSpec.ps1` 注入；lab 環境預設值為 `VMware1!VMware1!`。
+
+Bringup 完成後，各元件 FQDN + 帳密的完整清單記錄在：
+
+```
+layer2-bringup/vcf91/components-creds.json
+```
+
+格式：每個元件一筆，含 `componentName`、`FQDN`、`credentials[]`（type / user / password）。
+
 ## 待補
 
 - [ ] VCF 9.1 OpenAPI 對齊欄位名（`nsxtSpec` vs `nsxSpec`），跑 `-ValidateOnly` 看 error 對齊
