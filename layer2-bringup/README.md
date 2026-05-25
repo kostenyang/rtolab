@@ -98,6 +98,10 @@ layer2-bringup/vcf91/components-creds.json
 
 格式：每個元件一筆，含 `componentName`、`FQDN`、`credentials[]`（type / user / password）。
 
+## 故障排除
+
+- **`Save VCF Management Components` 失敗** (`INVENTORY_INTERNAL_SERVER_ERROR`) → `vspClusterSpec.fleetFqdn` 沒填造成 `FLEET_LCM` 元件 fqdn=null，違反 SDDC Manager DB NOT NULL constraint。詳細根因 + 事前 / 事後修法見 [save-vcf-mgmt-components-fix.md](./save-vcf-mgmt-components-fix.md)。9.1 template 已預填 `fleetFqdn` 防止再犯。
+
 ## 待補
 
 - [ ] VCF 9.1 OpenAPI 對齊欄位名（`nsxtSpec` vs `nsxSpec`），跑 `-ValidateOnly` 看 error 對齊

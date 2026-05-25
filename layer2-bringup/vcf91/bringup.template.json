@@ -147,9 +147,11 @@
     "clusterName":    "{{ vcf.management_domain.name }}-cl01"
   },
 
+  "_comment_fleetFqdn": "REQUIRED for primary VCF instance. Omitting it causes 'Save VCF Management Components' to fail with INVENTORY_INTERNAL_SERVER_ERROR (DB NOT NULL on fqdn for FLEET_LCM row). See docs/save-vcf-mgmt-components-fix.md.",
   "vspClusterSpec": {
     "instanceFqdn": "kosten-vcf91-vsp.rtolab.local",
     "platformFqdn": "kosten-vcf91-vspp.rtolab.local",
+    "fleetFqdn":    "kosten-vcf91-fleet.rtolab.local",
     "systemUserPassword": "{{ secrets.sddc_manager.admin_pw }}",
     "size": "small",
     "ipv4Pool": {
