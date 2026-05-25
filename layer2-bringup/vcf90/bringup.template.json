@@ -156,7 +156,8 @@
 
   "datastoreSpec": {
     "vsanSpec": {
-      "datastoreName": "{{ vcf.management_domain.name }}-vsan01",
+      "datastoreName":      "{{ vcf.management_domain.name }}-vsan01",
+      "failuresToTolerate": 0,
       "esaConfig": { "enabled": false },
       "_lab_note_vsan": "VCF 9.0 nested 預設關 ESA (OSA 更穩). 想開 ESA 改 enabled=true 並用 -LabMode 注入 skip HCL"
     }
