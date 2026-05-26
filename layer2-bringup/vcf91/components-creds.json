@@ -8,6 +8,8 @@
     {"componentName": "VCF Operations", "FQDN": "kosten-vcf91-ops.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}, {"type": "Administrator credentials", "user": "admin", "password": "VMware1!VMware1!"}]},
     {"componentName": "Cloud Proxy", "FQDN": "kosten-vcf91-ops-coll.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}]},
     {"componentName": "VCF Management Services", "FQDN": "kosten-vcf91-vspp.rtolab.local", "credentials": [{"type": "SSH credentials", "user": "vmware-system-user", "password": "VMware1!VMware1!"}]},
+    {"componentName": "SDDC LCM (VSP instance)", "FQDN": "kosten-vcf91-vsp.rtolab.local", "credentials": [{"type": "SSH credentials", "user": "vmware-system-user", "password": "VMware1!VMware1!"}]},
+    {"componentName": "Fleet LCM", "FQDN": "kosten-vcf91-fleet.rtolab.local", "credentials": [{"type": "SSH credentials", "user": "vmware-system-user", "password": "VMware1!VMware1!"}]},
     {"componentName": "VCF Automation", "FQDN": "kosten-vcf91-auto.rtolab.local", "credentials": [{"type": "Administrator credentials", "user": "admin", "password": "VMware1!VMware1!"}]},
     {"componentName": "VCF Automation", "FQDN": "kosten-vcf91-vcfa-platform.rtolab.local", "credentials": [{"type": "SSH credentials", "user": "vmware-system-user", "password": "VMware1!VMware1!"}]},
     {"componentName": "vCenter", "FQDN": "kosten-vcf91-vc.rtolab.local", "credentials": [{"type": "Root credentials", "user": "root", "password": "VMware1!VMware1!"}, {"type": "Administrator credentials", "user": "administrator@vsphere.local", "password": "VMware1!VMware1!"}]},
