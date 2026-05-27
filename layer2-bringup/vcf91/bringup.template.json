@@ -61,7 +61,7 @@
     "vsanSpec": {
       "datastoreName":     "{{ vcf.management_domain.name }}-cl01-ds-vsan01",
       "failuresToTolerate": 0,
-      "esaConfig":         { "enabled": true }
+      "esaConfig":         { "enabled": false }
     }
   },
 
