@@ -118,10 +118,10 @@ echo "vmnic0 MAC=`$VMNIC0_MAC"
 esxcli network ip interface remove --interface-name=vmk0
 esxcli network ip interface add --interface-name=vmk0 --portgroup-name='Management Network' --mac-address="`$VMNIC0_MAC"
 
-# IPv4 static
-esxcli network ip interface ipv4 set -i vmk0 -t static -I "`$IP" -N "`$NETMASK" -g "`$GW"
+# IPv4 static (DO NOT pass -g here; chicken-and-egg with default gw on netstack)
+esxcli network ip interface ipv4 set -i vmk0 -t static -I "`$IP" -N "`$NETMASK"
 
-# default gateway
+# default gateway (must come AFTER vmk0 has IP on the gw subnet)
 esxcli network ip route ipv4 add --gateway "`$GW" --network default 2>/dev/null
 
 # Hostname

@@ -1,227 +1,245 @@
 {
-  "_comment": "VCF 9.1 Management Domain Bring-up Spec — 由 Generate-BringupSpec.ps1 從 inventory/lab.yaml 填入. 鍵名以 VCF 9.x API 為準, 9.1 若有變動以官方 OpenAPI 為準.",
+  "_comment": "VCF 9.1 SddcSpec — schema 從 vcf-installer-openapi.json (354 KB) 抽出的 9.1 真實 schema, 不是 5.2.1 假設.",
   "sddcId": "vcf-m02",
   "workflowType": "VCF",
   "ceipEnabled": false,
-  "fipsEnabled": false,
   "managementPoolName": "vcf-m02-mgmt-pool",
   "skipEsxThumbprintValidation": true,
-  "_lab_note_1": "skipEsxThumbprintValidation = true 是 lab workaround, 正式環境設 false",
+  "skipGatewayPingValidation": true,
   "dnsSpec": {
     "subdomain": "rtolab.local",
     "domain": "rtolab.local",
-    "nameserver": "192.168.114.200",
-    "secondaryNameserver": ""
+    "nameservers": [
+      "192.168.114.200"
+    ]
   },
   "ntpServers": [
     "192.168.114.200"
   ],
-  "rootUserCredentials": {
-    "username": "root",
-    "password": "VMware1!VMware1!"
-  },
   "sddcManagerSpec": {
     "hostname": "kosten-vcf91-sddc",
-    "ipAddress": "192.168.114.10",
-    "rootUserCredentials": {
-      "username": "root",
-      "password": "VMware1!VMware1!"
-    },
-    "secondUserCredentials": {
-      "username": "vcf",
-      "password": "VMware1!VMware1!"
-    },
+    "rootPassword": "VMware1!VMware1!",
+    "sshPassword": "VMware1!VMware1!",
     "localUserPassword": "VMware1!VMware1!"
   },
   "vcenterSpec": {
     "vcenterHostname": "kosten-vcf91-vc",
-    "vcenterIp": "192.168.114.11",
-    "ssoDomain": "vsphere.local",
     "rootVcenterPassword": "VMware1!VMware1!",
+    "ssoDomain": "vsphere.local",
     "vmSize": "small",
-    "storageSize": "lstorage"
-  },
-  "psoSpec": {
-    "_lab_note_2": "VCF 9 取消獨立 PSC, embedded 在 vCenter 內, 留 stub 結構以防 9.1 schema 仍要求"
+    "storageSize": "lstorage",
+    "adminUserSsoUsername": "administrator@vsphere.local",
+    "adminUserSsoPassword": "VMware1!VMware1!"
   },
   "nsxtSpec": {
-    "nsxtManagerSize": "small",
+    "nsxtManagerSize": "medium",
     "nsxtManagers": [
       {
-        "hostname": "kosten-vcf91-nsx",
-        "ip": "192.168.114.12"
+        "hostname": "kosten-vcf91-nsxn1"
       }
     ],
+    "vipFqdn": "kosten-vcf91-nsx.rtolab.local",
     "rootNsxtManagerPassword": "VMware1!VMware1!",
     "nsxtAdminPassword": "VMware1!VMware1!",
     "nsxtAuditPassword": "VMware1!VMware1!",
-    "vip": "192.168.114.13",
-    "vipFqdn": "kosten-vcf91-nsx.rtolab.local",
-    "transportVlanId": "117"
+    "transportVlanId": 117,
+    "ipAddressPoolSpec": {
+      "name": "vcf-m02-tep-pool",
+      "subnets": [
+        {
+          "cidr": "192.168.117.0/24",
+          "gateway": "192.168.117.254",
+          "ipAddressPoolRanges": [
+            {
+              "start": "192.168.117.32",
+              "end": "192.168.117.95"
+            }
+          ]
+        }
+      ]
+    }
   },
-  "vsanSpec": {
-    "vsanName": "vsanDatastore",
-    "licenseFile": "",
-    "esaConfig": {
-      "enabled": true,
-      "_lab_note_3": "vSAN ESA. 若硬體不在 HCL, 必須加上 lab workaround (見 README)."
+  "datastoreSpec": {
+    "vsanSpec": {
+      "datastoreName": "vcf-m02-cl01-ds-vsan01",
+      "failuresToTolerate": 0,
+      "esaConfig": {
+        "enabled": false
+      }
     }
   },
   "dvsSpecs": [
     {
-      "dvsName": "SDDC-Dswitch-Private",
-      "vmnics": [
-        "vmnic0",
-        "vmnic1"
-      ],
+      "dvsName": "vcf-m02-cl01-vds01",
       "mtu": 9000,
       "networks": [
         "MANAGEMENT",
         "VSAN",
         "VMOTION"
       ],
-      "niocSpecs": [
+      "vmnicsToUplinks": [
         {
-          "trafficType": "VSAN",
-          "value": "HIGH"
+          "id": "vmnic0",
+          "uplink": "uplink1"
         },
         {
-          "trafficType": "VMOTION",
-          "value": "LOW"
-        },
-        {
-          "trafficType": "VDP",
-          "value": "LOW"
-        },
-        {
-          "trafficType": "VIRTUALMACHINE",
-          "value": "HIGH"
-        },
-        {
-          "trafficType": "MANAGEMENT",
-          "value": "NORMAL"
-        },
-        {
-          "trafficType": "NFS",
-          "value": "LOW"
-        },
-        {
-          "trafficType": "HBR",
-          "value": "LOW"
-        },
-        {
-          "trafficType": "FAULTTOLERANCE",
-          "value": "LOW"
-        },
-        {
-          "trafficType": "ISCSI",
-          "value": "LOW"
+          "id": "vmnic1",
+          "uplink": "uplink2"
         }
-      ]
+      ],
+      "nsxTeamings": [
+        {
+          "policy": "LOADBALANCE_SRCID",
+          "activeUplinks": [
+            "uplink1",
+            "uplink2"
+          ],
+          "standByUplinks": []
+        }
+      ],
+      "nsxtSwitchConfig": {
+        "transportZones": [
+          {
+            "name": "vcf-m02-tz-overlay01",
+            "transportType": "OVERLAY"
+          },
+          {
+            "name": "vcf-m02-tz-vlan01",
+            "transportType": "VLAN"
+          }
+        ]
+      }
     }
   ],
   "networkSpecs": [
     {
       "networkType": "MANAGEMENT",
       "subnet": "192.168.114.0/24",
-      "vlanId": "114",
-      "mtu": "1500",
-      "gateway": "192.168.114.1",
-      "portGroupKey": "SDDC-DPortGroup-Mgmt"
+      "vlanId": 114,
+      "mtu": 1500,
+      "gateway": "192.168.114.254",
+      "subnetMask": "255.255.255.0",
+      "portGroupKey": "vcf-m02-cl01-vds01-pg-mgmt",
+      "teamingPolicy": "loadbalance_loadbased",
+      "activeUplinks": [
+        "uplink1",
+        "uplink2"
+      ],
+      "standbyUplinks": []
     },
     {
       "networkType": "VSAN",
       "subnet": "192.168.116.0/24",
-      "vlanId": "116",
-      "mtu": "9000",
-      "gateway": "192.168.116.1",
-      "portGroupKey": "SDDC-DPortGroup-VSAN"
+      "vlanId": 116,
+      "mtu": 9000,
+      "gateway": "192.168.116.254",
+      "subnetMask": "255.255.255.0",
+      "portGroupKey": "vcf-m02-cl01-vds01-pg-vsan",
+      "includeIpAddressRanges": [
+        {
+          "startIpAddress": "192.168.116.14",
+          "endIpAddress": "192.168.116.17"
+        }
+      ],
+      "teamingPolicy": "loadbalance_loadbased",
+      "activeUplinks": [
+        "uplink1",
+        "uplink2"
+      ],
+      "standbyUplinks": []
+    },
+    {
+      "networkType": "VM_MANAGEMENT",
+      "subnet": "192.168.114.0/24",
+      "vlanId": 114,
+      "mtu": 1500,
+      "gateway": "192.168.114.254",
+      "portGroupKey": "vcf-m02-cl01-vds01-pg-vm-mgmt",
+      "teamingPolicy": "loadbalance_loadbased",
+      "activeUplinks": [
+        "uplink1",
+        "uplink2"
+      ],
+      "standbyUplinks": []
     },
     {
       "networkType": "VMOTION",
       "subnet": "192.168.115.0/24",
-      "vlanId": "115",
-      "mtu": "9000",
-      "gateway": "192.168.115.1",
-      "portGroupKey": "SDDC-DPortGroup-Vmotion"
+      "vlanId": 115,
+      "mtu": 9000,
+      "gateway": "192.168.115.254",
+      "subnetMask": "255.255.255.0",
+      "portGroupKey": "vcf-m02-cl01-vds01-pg-vmotion",
+      "includeIpAddressRanges": [
+        {
+          "startIpAddress": "192.168.115.14",
+          "endIpAddress": "192.168.115.17"
+        }
+      ],
+      "teamingPolicy": "loadbalance_loadbased",
+      "activeUplinks": [
+        "uplink1",
+        "uplink2"
+      ],
+      "standbyUplinks": []
     }
   ],
   "clusterSpec": {
-    "clusterName": "vcf-m02-cl01",
-    "clusterEvcMode": "",
-    "vmFolders": {
-      "MANAGEMENT": "vcf-m02-fd-mgmt",
-      "NETWORKING": "vcf-m02-fd-nsx",
-      "EDGENODES": "vcf-m02-fd-edge"
-    },
-    "personalitySpec": {
-      "_lab_note_4": "Personality / vLCM image. 留空使用 default cluster image"
+    "datacenterName": "vcf-m02-dc",
+    "clusterName": "vcf-m02-cl01"
+  },
+  "_comment_fleetFqdn": "REQUIRED for primary VCF instance. Omitting it causes 'Save VCF Management Components' to fail with INVENTORY_INTERNAL_SERVER_ERROR (DB NOT NULL on fqdn for FLEET_LCM row). See docs/save-vcf-mgmt-components-fix.md.",
+  "vspClusterSpec": {
+    "instanceFqdn": "kosten-vcf91-vsp.rtolab.local",
+    "platformFqdn": "kosten-vcf91-vspp.rtolab.local",
+    "fleetFqdn": "kosten-vcf91-fleet.rtolab.local",
+    "systemUserPassword": "VMware1!VMware1!",
+    "size": "small",
+    "ipv4Pool": {
+      "ipRange": {
+        "startIpAddress": "192.168.114.18",
+        "endIpAddress": "192.168.114.29"
+      }
     }
   },
   "hostSpecs": [
     {
-      "association": "vcf-m02-dc",
-      "ipAddressPrivate": {
-        "ipAddress": "192.168.114.14",
-        "cidr": "192.168.114.0/24",
-        "gateway": "192.168.114.1"
-      },
       "hostname": "kosten-vcf91-esx01",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      }
+      },
+      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
+      "sslThumbprint": "89:55:70:7A:FA:DA:1B:0B:1E:79:55:7A:EE:B5:D1:03:7B:B2:2F:63:DD:C5:3D:C8:B3:F2:CC:E5:95:73:E7:48"
     },
     {
-      "association": "vcf-m02-dc",
-      "ipAddressPrivate": {
-        "ipAddress": "192.168.114.15",
-        "cidr": "192.168.114.0/24",
-        "gateway": "192.168.114.1"
-      },
       "hostname": "kosten-vcf91-esx02",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      }
+      },
+      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
+      "sslThumbprint": "82:07:06:3A:0F:5C:6B:42:F8:1A:25:84:92:F5:80:ED:F0:78:79:D7:D1:39:C5:BB:EB:2E:17:91:69:50:98:46"
     },
     {
-      "association": "vcf-m02-dc",
-      "ipAddressPrivate": {
-        "ipAddress": "192.168.114.16",
-        "cidr": "192.168.114.0/24",
-        "gateway": "192.168.114.1"
-      },
       "hostname": "kosten-vcf91-esx03",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      }
+      },
+      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
+      "sslThumbprint": "29:16:B8:24:6D:4F:05:FF:D8:1F:80:7E:85:9D:2E:29:25:DB:4F:92:93:EB:E8:00:46:1D:83:00:E1:61:72:0B"
     },
     {
-      "association": "vcf-m02-dc",
-      "ipAddressPrivate": {
-        "ipAddress": "192.168.114.17",
-        "cidr": "192.168.114.0/24",
-        "gateway": "192.168.114.1"
-      },
       "hostname": "kosten-vcf91-esx04",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      }
+      },
+      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
+      "sslThumbprint": "6C:EE:AB:72:79:11:11:65:C9:5B:E8:74:83:F4:69:A7:AF:72:B9:16:91:E0:BE:62:4B:F9:34:7F:81:D0:F6:81"
     }
   ],
-  "_lab_workarounds": {
-    "comment": "下列由 Generate-BringupSpec.ps1 在 -LabMode 開啟時注入到對應節點",
-    "candidates": [
-      "bypassVsanEsaHcl",
-      "skipNestedCpuCheck",
-      "skipNicCountCheck",
-      "skipMinHostCheck",
-      "allowUnsupportedSslThumbprint"
-    ]
-  },
   "skipChecks": [
     "NESTED_CPU_CHECK",
     "NIC_COUNT_CHECK",
