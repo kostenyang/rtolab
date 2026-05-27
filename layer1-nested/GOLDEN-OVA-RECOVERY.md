@@ -35,6 +35,24 @@ done
 
 ## 已踩雷
 
+### A0. NestedHV / vhv.enable 沒設 → vCenter OVF deploy 撞 "host does not support Intel VT-x"
+
+**症狀**：bringup 在 `Deploy vCenter Appliance` 失敗，retry 3+ 次，每次 ~12 min。
+ci-installer log 顯示：`OVF Tool: Error: Task failed on server: This host does not support Intel VT-x.`
+
+**根因**：OVA 沒記 `vhv.enable=TRUE` ExtraConfig 和 `NestedHVEnabled=true`，從 OVA clone 出來的 nested ESXi VM 沒對 inside guest expose VT-x，所以 inner vCenter VM 無法 power on。
+
+**修法（已 commit 進 Deploy-FromGoldenOva.ps1）**：
+```powershell
+$extras += @{ Key='vhv.enable'; Value='TRUE' }
+$cfg = New-Object VMware.Vim.VirtualMachineConfigSpec -Property @{
+    ExtraConfig = $extras | ForEach-Object { ... }
+    NestedHVEnabled = $true   # vSphere 7+
+}
+```
+
+如果 OVA 已 deploy 但忘了 set，事後補：power off VM → ReconfigVM `NestedHVEnabled=true` + extraConfig `vhv.enable=TRUE` → power on → re-do Fix-CloneNetwork + Apply-CloneIp + Regen-EsxiCert（reboot 會把 runtime 清掉）。
+
 ### A. SSH host keys 還是共用的
 4 VM 的 SSH host keys 都從 OVA 來，所以 fingerprint 相同。validator 不會 fail（thumbprint 對得上即可），但有「post-quantum」warning。若要分散，做完 cert regen 後跑：
 ```sh

@@ -131,10 +131,13 @@ foreach ($v in $Versions) {
             @{ Key='guestinfo.vlan';      Value=[string]$inv.network.mgmt.vlan },
             @{ Key='guestinfo.dns';       Value=$inv.infra.ad_dns.ip },
             @{ Key='guestinfo.domain';    Value=$inv.lab.domain },
-            @{ Key='guestinfo.ntp';       Value=$inv.infra.ad_dns.ip }
+            @{ Key='guestinfo.ntp';       Value=$inv.infra.ad_dns.ip },
+            # nested HV: 必須開, 否則 vCenter OVF deploy 撞 "host does not support Intel VT-x"
+            @{ Key='vhv.enable';          Value='TRUE' }
         )
         $cfg = New-Object VMware.Vim.VirtualMachineConfigSpec -Property @{
             ExtraConfig = $extras | ForEach-Object { New-Object VMware.Vim.OptionValue -Property $_ }
+            NestedHVEnabled = $true   # 同時設 NestedHV 屬性 (vSphere 7+ 用)
         }
         $task = $vm.ExtensionData.ReconfigVM_Task($cfg)
         $tv = Get-View $task
