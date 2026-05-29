@@ -104,19 +104,15 @@ VLAN='$($inv.network.mgmt.vlan)'
 DNS='$($inv.infra.ad_dns.ip)'
 DOMAIN='$($inv.lab.domain)'
 
-# Make ESXi follow vNIC HW MAC after this point (for future reboots)
-esxcli system settings advanced set -o /Net/FollowHardwareMac -i 1
-
 # Set VLAN ID on Management Network portgroup (clone inherited 0 from master state)
 esxcli network vswitch standard portgroup set -p 'Management Network' --vlan-id="`$VLAN"
 
-# Get vmnic0 HW MAC — explicitly bind vmk0 to it on re-add
-VMNIC0_MAC=`$(esxcli network nic list | awk '/vmnic0/{print `$8}')
-echo "vmnic0 MAC=`$VMNIC0_MAC"
-
-# Remove vmk0 + re-add with explicit MAC matching vmnic0
+# Remove vmk0 + re-add letting ESXi auto-generate a NEW vmk0 MAC (do NOT bind to vmnic0 HW MAC).
+# Binding vmk0 MAC == vmnic0 MAC breaks VCF vmk0 migration to vDS pg-mgmt:
+# after migration vmk0 traffic egresses via vmnic1 (vDS load-balance), source MAC = vmnic0 MAC,
+# outer dvSwitch MAC learning sees same MAC on two ports and stops forwarding.
 esxcli network ip interface remove --interface-name=vmk0
-esxcli network ip interface add --interface-name=vmk0 --portgroup-name='Management Network' --mac-address="`$VMNIC0_MAC"
+esxcli network ip interface add --interface-name=vmk0 --portgroup-name='Management Network'
 
 # IPv4 static (DO NOT pass -g here; chicken-and-egg with default gw on netstack)
 esxcli network ip interface ipv4 set -i vmk0 -t static -I "`$IP" -N "`$NETMASK"
