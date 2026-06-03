@@ -202,42 +202,80 @@
       }
     }
   },
+  "_comment_optionB": "Full Option B: Automation + Operations + Collector + License + vIDB. All values render from inventory vcf.versions.9.1.management_domain.{automation,operations,license_server,vidb}. License/vIDB build numbers are version-pinned here.",
+  "vcfAutomationSpec": {
+    "hostname": "kosten-vcf91-auto.rtolab.local",
+    "platformFqdn": "kosten-vcf91-vcfa-platform.rtolab.local",
+    "adminUserPassword": "VMware1!VMware1!",
+    "ipPool": [
+      "192.168.114.78",
+      "192.168.114.79",
+      "192.168.114.80",
+      "192.168.114.81",
+      "192.168.114.82",
+      "192.168.114.83"
+    ],
+    "internalClusterCidr": "172.27.0.0/16",
+    "nodePrefix": "vcfa",
+    "size": "small",
+    "useExistingDeployment": false
+  },
+  "vcfOperationsSpec": {
+    "nodes": [
+      {
+        "hostname": "kosten-vcf91-ops.rtolab.local",
+        "rootUserPassword": "VMware1!VMware1!",
+        "type": "master"
+      }
+    ],
+    "adminUserPassword": "VMware1!VMware1!",
+    "applianceSize": "small",
+    "useExistingDeployment": false
+  },
+  "vcfOperationsCollectorSpec": {
+    "hostname": "kosten-vcf91-ops-coll.rtolab.local",
+    "rootUserPassword": "VMware1!VMware1!",
+    "applianceSize": "small",
+    "useExistingDeployment": false
+  },
+  "licenseServerSpec": {
+    "hostname": "kosten-vcf91-lic.rtolab.local",
+    "version": "9.1.0.0.25346031",
+    "useExistingDeployment": false
+  },
+  "vidbSpec": {
+    "hostname": "kosten-vcf91-vidb.rtolab.local",
+    "version": "9.1.0.0.25368698",
+    "size": "small"
+  },
   "hostSpecs": [
     {
       "hostname": "kosten-vcf91-esx01",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      },
-      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
-      "sslThumbprint": "89:55:70:7A:FA:DA:1B:0B:1E:79:55:7A:EE:B5:D1:03:7B:B2:2F:63:DD:C5:3D:C8:B3:F2:CC:E5:95:73:E7:48"
+      }
     },
     {
       "hostname": "kosten-vcf91-esx02",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      },
-      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
-      "sslThumbprint": "82:07:06:3A:0F:5C:6B:42:F8:1A:25:84:92:F5:80:ED:F0:78:79:D7:D1:39:C5:BB:EB:2E:17:91:69:50:98:46"
+      }
     },
     {
       "hostname": "kosten-vcf91-esx03",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      },
-      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
-      "sslThumbprint": "29:16:B8:24:6D:4F:05:FF:D8:1F:80:7E:85:9D:2E:29:25:DB:4F:92:93:EB:E8:00:46:1D:83:00:E1:61:72:0B"
+      }
     },
     {
       "hostname": "kosten-vcf91-esx04",
       "credentials": {
         "username": "root",
         "password": "VMware1!VMware1!"
-      },
-      "sshThumbprint": "SHA256:W8adZXHiEhhlmPotqhtXX47k2uhcmKA6Urq/NMXpCFE",
-      "sslThumbprint": "6C:EE:AB:72:79:11:11:65:C9:5B:E8:74:83:F4:69:A7:AF:72:B9:16:91:E0:BE:62:4B:F9:34:7F:81:D0:F6:81"
+      }
     }
   ],
   "skipChecks": [

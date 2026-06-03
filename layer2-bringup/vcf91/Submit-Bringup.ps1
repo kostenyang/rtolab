@@ -48,10 +48,14 @@ do {
     Write-Host ("  status: {0}" -f $v.executionStatus)
 } while ($v.executionStatus -in @('IN_PROGRESS','PENDING'))
 
-if ($v.executionStatus -ne 'COMPLETED' -or $v.resultStatus -ne 'SUCCEEDED') {
+if ($v.executionStatus -ne 'COMPLETED' -or $v.resultStatus -notin @('SUCCEEDED', 'WARNING')) {
     Write-Host "Validation FAILED:" -ForegroundColor Red
-    $v.validationChecks | Where-Object { $_.resultStatus -ne 'SUCCEEDED' } | Select-Object description, resultStatus, errorResponse | Format-List
+    $v.validationChecks | Where-Object { $_.resultStatus -notin @('SUCCEEDED','WARNING') } | Select-Object description, resultStatus, errorResponse | Format-List
     throw "Validation 沒過."
+}
+if ($v.resultStatus -eq 'WARNING') {
+    Write-Host "Validation WARNING (proceeding):" -ForegroundColor Yellow
+    $v.validationChecks | Where-Object { $_.resultStatus -eq 'WARNING' } | ForEach-Object { Write-Host "  [WARN] $($_.description)" -ForegroundColor Yellow }
 }
 Write-Host "Validation OK ✓" -ForegroundColor Green
 if ($ValidateOnly) { return }

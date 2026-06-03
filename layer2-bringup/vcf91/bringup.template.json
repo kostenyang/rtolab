@@ -159,6 +159,57 @@
     }
   },
 
+  "_comment_optionB": "Full Option B: Automation + Operations + Collector + License + vIDB. All values render from inventory vcf.versions.9.1.management_domain.{automation,operations,license_server,vidb}. License/vIDB build numbers are version-pinned here.",
+  "vcfAutomationSpec": {
+    "hostname":            "{{ vcf.management_domain.automation.fqdn }}",
+    "platformFqdn":        "{{ vcf.management_domain.automation.platform_fqdn }}",
+    "adminUserPassword":   "{{ secrets.sddc_manager.admin_pw }}",
+    "ipPool": [
+      "{{ vcf.management_domain.automation.ip_pool[0] }}",
+      "{{ vcf.management_domain.automation.ip_pool[1] }}",
+      "{{ vcf.management_domain.automation.ip_pool[2] }}",
+      "{{ vcf.management_domain.automation.ip_pool[3] }}",
+      "{{ vcf.management_domain.automation.ip_pool[4] }}",
+      "{{ vcf.management_domain.automation.ip_pool[5] }}"
+    ],
+    "internalClusterCidr": "{{ vcf.management_domain.automation.internal_cluster_cidr }}",
+    "nodePrefix":          "{{ vcf.management_domain.automation.node_prefix }}",
+    "size":                "{{ vcf.management_domain.automation.size }}",
+    "useExistingDeployment": false
+  },
+
+  "vcfOperationsSpec": {
+    "nodes": [
+      {
+        "hostname":         "{{ vcf.management_domain.operations.fqdn }}",
+        "rootUserPassword": "{{ secrets.operations.root_pw }}",
+        "type":             "master"
+      }
+    ],
+    "adminUserPassword":     "{{ secrets.operations.admin_pw }}",
+    "applianceSize":         "{{ vcf.management_domain.operations.appliance_size }}",
+    "useExistingDeployment": false
+  },
+
+  "vcfOperationsCollectorSpec": {
+    "hostname":              "{{ vcf.management_domain.operations.collector_fqdn }}",
+    "rootUserPassword":      "{{ secrets.operations.root_pw }}",
+    "applianceSize":         "{{ vcf.management_domain.operations.appliance_size }}",
+    "useExistingDeployment": false
+  },
+
+  "licenseServerSpec": {
+    "hostname":              "{{ vcf.management_domain.license_server.fqdn }}",
+    "version":               "9.1.0.0.25346031",
+    "useExistingDeployment": false
+  },
+
+  "vidbSpec": {
+    "hostname": "{{ vcf.management_domain.vidb.fqdn }}",
+    "version":  "9.1.0.0.25368698",
+    "size":     "{{ vcf.management_domain.vidb.size }}"
+  },
+
   "hostSpecs": [
     { "hostname": "{{ hosts[0].fqdn | splitDot 0 }}", "credentials": { "username":"root", "password": "{{ secrets.esxi.root_pw }}" } },
     { "hostname": "{{ hosts[1].fqdn | splitDot 0 }}", "credentials": { "username":"root", "password": "{{ secrets.esxi.root_pw }}" } },
