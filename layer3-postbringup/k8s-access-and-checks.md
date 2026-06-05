@@ -28,14 +28,46 @@
 - **實體 ESXi** 部分機器只接受 `publickey` / `keyboard-interactive`,無法用密碼登入;
   要查底層挑可密碼登入的那台(本 lab `10.0.0.95`)。
 
+> ⚠️ **表中的 IP 是「某一次部署」的範例,不是固定值。** VSP Supervisor / VCF
+> Automation 的節點 IP **每次 bringup 都會變**(從 management_domain 的 IP pool 動態分配)。
+> 不要照抄 IP,先用 §0.1 從 inner vCenter 動態找出當前的節點 IP。
+
 ---
 
-## 1. VSP Supervisor K8s(控制平面節點 10.0.0.222)
+## 0.1 動態找當前的節點 IP(每次 bringup 會變)
+
+VSP Supervisor 控制平面節點 = inner vCenter 裡那台 `*-vspp-*` VM,它的 guest NIC
+**同時持有「自己的節點 IP」+「K8s API VIP」**(兩個 IP);VCF Automation 節點 = `*-vcfa-*` /
+`*-auto-*` VM。用 PowerCLI 從 **inner vCenter** 撈:
+
+```powershell
+# 連 inner vCenter(FQDN/IP 見 inventory vcf.versions.<ver>.management_domain.inner_vcenter)
+$vc = Connect-VIServer <inner-vc-ip> -User administrator@vsphere.local -Password <pw>
+
+# VSP Supervisor 節點 + 各自 IP(持有 2 個 IP 的那台 = 控制平面/VIP holder)
+Get-VM -Server $vc -Name '*vspp*' | ForEach-Object {
+    $ips = ($_.ExtensionData.Guest.Net.IpAddress | Where-Object { $_ -match '^\d+\.' }) -join ','
+    "{0}: {1}" -f $_.Name, $ips
+}
+# -> 兩個 IP 的那台,較小的通常是 API VIP、較大的是節點 real IP;SSH 用 real IP
+
+# VCF Automation / 平台節點
+Get-VM -Server $vc -Name '*vcfa*','*auto*' | ForEach-Object {
+    "{0}: {1}" -f $_.Name, (($_.ExtensionData.Guest.Net.IpAddress | Where-Object { $_ -match '^\d+\.' }) -join ',')
+}
+```
+
+找到 real IP 後,§1 / §2 的 `ssh vmware-system-user@<...>` 就用那個 IP。
+(範例:某次 9.1 部署控制平面節點 real IP = `192.168.114.20`、API VIP = `.19`。)
+
+---
+
+## 1. VSP Supervisor K8s(控制平面節點 — IP 用 §0.1 動態找)
 
 ### 1.1 登入
 
 ```bash
-ssh vmware-system-user@10.0.0.222          # 密碼 <vsp-cp-pw>
+ssh vmware-system-user@<vsp-cp-real-ip>    # IP 用 §0.1 動態找;密碼 <vsp-cp-pw>
 ```
 
 密碼若失效(輪替過了),從 M02 vCenter 取回 Supervisor 控制平面密碼:
@@ -86,12 +118,12 @@ echo '<vsp-cp-pw>' | sudo -S sh -c '
 
 ---
 
-## 2. VCF Automation K8s(Automation 節點 10.0.0.243)
+## 2. VCF Automation K8s(Automation 節點 — IP 用 §0.1 動態找)
 
 ### 2.1 登入
 
 ```bash
-ssh vmware-system-user@10.0.0.243          # 密碼 <auto-pw>
+ssh vmware-system-user@<auto-node-real-ip>  # IP 用 §0.1 動態找;密碼 <auto-pw>
 ```
 
 kubeconfig 在 `/etc/kubernetes/admin.conf`(需 sudo)。
