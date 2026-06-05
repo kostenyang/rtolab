@@ -118,6 +118,50 @@ echo '<vsp-cp-pw>' | sudo -S sh -c '
 
 ---
 
+## 1.5 VSP bootstrap VM(部署 VSP Supervisor 期間的臨時 CAPI 管理叢集)
+
+> 只在 bring-up 跑到 **"Monitor VCF Management Services Deployment Task"** 階段存在。
+> VSP Supervisor 建好、pivot/handoff 完成後**這台會被自動刪掉**,要看就趁這個視窗。
+
+**它是什麼:** inner vCenter 裡一台名為 `bootstrap-vm-*` 的 **Photon OS** VM,自帶一個
+**單節點 Kubernetes**(etcd + apiserver + controller/scheduler 都跑在它本機),上面跑
+**Cluster API + CAPV**(`capv-controller-manager`、`capi-ipam`、`capi-kubeadm-control-plane`、
+`cert-manager`、`vmsp-operator`)+ `vmsp-agent -role=bootstrap`(API 在 `:5480`)+ 內建 image
+registry。它用 CAPV 去 vSphere 上 provision 真正的 VSP Supervisor 節點(`*-vspp-*`),完成後 pivot 掉。
+
+**怎麼找它的 IP:** 通常是 VSP `ipv4Pool` 的**第一個 IP**(本次 = `192.168.114.18`);
+或從 inner vCenter `Get-VM '*bootstrap*'` 看 guest IP。
+
+**登入:**
+```bash
+ssh vmware-system-user@<bootstrap-ip>      # 密碼 VMware1!VMware1!(Photon OS)
+# sudo 要非互動式:
+echo 'VMware1!VMware1!' | sudo -S <cmd>
+```
+
+**檢查 VSP 部署進度(關鍵除錯視角):**
+```bash
+KC=/etc/kubernetes/admin.conf
+# bootstrap agent 健康(apiReady / clusterHealthy)
+echo 'VMware1!VMware1!' | sudo -S curl -sk https://127.0.0.1:5480/api/v1/status
+
+# CAPI 正在生的 VSP Supervisor cluster / 節點(看 provisioning 卡在哪)
+echo 'VMware1!VMware1!' | sudo -S kubectl --kubeconfig=$KC get clusters,machines,vspheremachines,vspherevms -A
+echo 'VMware1!VMware1!' | sudo -S kubectl --kubeconfig=$KC get pods -A | grep -vE 'Running|Completed'
+
+# bootstrap 自身 K8s 控制平面 + CAPV controller log
+echo 'VMware1!VMware1!' | sudo -S kubectl --kubeconfig=$KC logs -n capv-system deploy/capv-controller-manager --tail=50
+
+# cloud-init / 開機編排紀錄
+echo 'VMware1!VMware1!' | sudo -S tail -50 /var/log/cloud-init-output.log
+```
+
+**判讀:** `vmsp-agent` 回 `{"apiReady":true,"clusterHealthy":true}` = bootstrap 本身 OK;
+VSP 卡住時看 `machines` / `vspheremachines` 的 phase 卡在哪(Provisioning/Pending),
+以及 `capv-controller-manager` log 有沒有 vSphere 端錯誤(資源不足 / placement / OVA import 失敗)。
+
+---
+
 ## 2. VCF Automation K8s(Automation 節點 — IP 用 §0.1 動態找)
 
 ### 2.1 登入
