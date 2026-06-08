@@ -13,6 +13,10 @@ Bring-up 完之後的 SDDC Manager 動作: commission hosts / create workload do
   — VSP Supervisor / VCF Automation K8s 的**登入方式與檢查指令速查**:怎麼 SSH 進各節點、
   拿 kubeconfig / sudo、etcd 健康度(wal_fsync / crashloop)、pod 狀態 / prelude / events
   檢查指令。可重複使用的操作參考。
+- [vcf91-install-access-ops.md](./vcf91-install-access-ops.md)
+  — 9.1 + Automation 裝好後的維運速查:**怎麼安裝**(installer workflow + 成功關鍵 FTT=0/CPU 保留)、
+  **帳號密碼 + VIP 總表**(含 VCF Automation .77 / vIDB / Ops)、**怎麼改密碼**(SDDC credentials API 輪替)、
+  **怎麼除錯**(bring-up 進度、etcd 健康、VCFA pod、SSH/sudo 取權限)。
 
 ## 預計實作
 
