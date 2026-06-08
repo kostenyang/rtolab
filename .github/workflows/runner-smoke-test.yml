@@ -1,0 +1,25 @@
+name: Runner Smoke Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, Windows, pwsh, lab]
+    steps:
+      - name: Check pwsh version
+        run: pwsh --version
+
+      - name: Check lab network reach
+        run: |
+          $targets = @("192.168.114.200", "172.16.10.100")
+          foreach ($ip in $targets) {
+            $result = Test-Connection -ComputerName $ip -Count 1 -Quiet
+            Write-Output "$ip reachable: $result"
+          }
+
+      - name: Check PowerCLI available
+        run: |
+          $mod = Get-Module -ListAvailable -Name VMware.PowerCLI -ErrorAction SilentlyContinue
+          if ($mod) { Write-Output "PowerCLI $($mod[0].Version) found" }
+          else { Write-Output "PowerCLI not installed" }
