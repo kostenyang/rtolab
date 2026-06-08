@@ -1,0 +1,129 @@
+name: Lint
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── 1. PSScriptAnalyzer ─────────────────────────────────────────────────
+  pssa:
+    name: PSScriptAnalyzer
+    runs-on: [self-hosted, Windows, pwsh, lab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        run: |
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -Repository PSGallery
+          }
+
+      - name: Analyse .ps1 files
+        run: |
+          $settings = "$env:GITHUB_WORKSPACE\.github\PSScriptAnalyzerSettings.psd1"
+          $files    = Get-ChildItem -Recurse -Filter "*.ps1" |
+                        Where-Object { $_.FullName -notlike "*\_seed\*" }
+
+          Write-Output "Analysing $($files.Count) file(s)..."
+
+          $results = $files | Invoke-ScriptAnalyzer -Settings $settings -Severity Error, Warning
+
+          if ($results) {
+            $results | Format-Table -Property RuleName, Severity, ScriptName, Line, Message -AutoSize -Wrap
+            Write-Output ""
+            Write-Output "::error::PSScriptAnalyzer found $($results.Count) issue(s)."
+            exit 1
+          }
+
+          Write-Output "PSScriptAnalyzer: no issues found."
+
+  # ── 2. YAML validation ──────────────────────────────────────────────────
+  yaml:
+    name: YAML Validation
+    runs-on: [self-hosted, Windows, pwsh, lab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install powershell-yaml
+        run: |
+          if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+            Install-Module powershell-yaml -Force -Scope CurrentUser -Repository PSGallery
+          }
+
+      - name: Validate YAML files
+        run: |
+          Import-Module powershell-yaml -ErrorAction Stop
+
+          $files  = Get-ChildItem -Recurse -Include "*.yaml","*.yml" |
+                      Where-Object { $_.FullName -notlike "*\.github\*" }
+          $errors = @()
+
+          foreach ($f in $files) {
+            try {
+              $raw = Get-Content $f.FullName -Raw
+              # sops-encrypted files start with ENC[ — skip deep parse, just check it loads
+              ConvertFrom-Yaml $raw | Out-Null
+            } catch {
+              $errors += "$($f.FullName -replace [regex]::Escape($env:GITHUB_WORKSPACE)): $($_.Exception.Message)"
+            }
+          }
+
+          if ($errors) {
+            $errors | ForEach-Object { Write-Output "::error file=$_::YAML parse error" }
+            exit 1
+          }
+
+          Write-Output "YAML validation: $($files.Count) file(s) OK."
+
+  # ── 3. Secret scan ──────────────────────────────────────────────────────
+  secrets:
+    name: Secret Scan
+    runs-on: [self-hosted, Windows, pwsh, lab]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for diff scan
+
+      - name: Scan for plain-text secrets
+        run: |
+          # Patterns that indicate unencrypted secrets committed by mistake.
+          # lab.example.yaml and *.enc files are excluded.
+          $patterns = [ordered]@{
+            'GitHub PAT'       = 'github_pat_[0-9A-Za-z_]{10,}'
+            'GitHub token ghp' = 'ghp_[0-9A-Za-z]{30,}'
+            'Anthropic key'    = 'sk-ant-[0-9A-Za-z\-_]{20,}'
+            'AWS key'          = 'AKIA[0-9A-Z]{16}'
+            'Private key PEM'  = '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'
+          }
+
+          $excludeFiles = @("*.example.*", "*.enc.*", "GOLDEN-OVA-RECOVERY.md")
+          $found = [System.Collections.Generic.List[string]]::new()
+
+          $files = Get-ChildItem -Recurse -File |
+            Where-Object {
+              $_.Extension -in ".ps1",".yaml",".yml",".json",".txt",".md",".env" -and
+              -not ($excludeFiles | Where-Object { $_.FullName -like "*$_*" })
+            }
+
+          foreach ($f in $files) {
+            $content = Get-Content $f.FullName -Raw -ErrorAction SilentlyContinue
+            if (-not $content) { continue }
+            foreach ($label in $patterns.Keys) {
+              if ($content -match $patterns[$label]) {
+                $rel = $f.FullName -replace [regex]::Escape($env:GITHUB_WORKSPACE + "\"), ""
+                $found.Add("${rel}: $label")
+              }
+            }
+          }
+
+          if ($found.Count -gt 0) {
+            $found | ForEach-Object { Write-Output "::error::$_" }
+            Write-Output ""
+            Write-Output "::error::Secret scan found $($found.Count) potential secret(s). Remove them before merging."
+            exit 1
+          }
+
+          Write-Output "Secret scan: $($files.Count) file(s) checked, nothing found."
