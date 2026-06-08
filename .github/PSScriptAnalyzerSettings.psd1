@@ -1,8 +1,10 @@
 @{
     # Only error on real bugs; skip style rules that would spam lab scripts
     IncludeRules = @(
-        'PSAvoidUsingPlainTextForPassword',
-        'PSAvoidUsingConvertToSecureStringWithPlainText',
+        # PSAvoidUsingPlainTextForPassword excluded: lab scripts legitimately accept
+        # plain-text passwords from sops-decrypted secrets and pass them to PowerCLI APIs.
+        # PSAvoidUsingConvertToSecureStringWithPlainText excluded: same reason —
+        # ConvertTo-SecureString -AsPlainText -Force is the standard PowerCLI pattern.
         'PSAvoidUsingInvokeExpression',
         'PSMisleadingBacktick',
         'PSMissingModuleManifestField',
