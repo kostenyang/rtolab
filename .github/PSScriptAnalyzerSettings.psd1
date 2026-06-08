@@ -11,15 +11,9 @@
         'PSPossibleIncorrectComparisonWithNull',
         'PSPossibleIncorrectUsageOfAssignmentOperator',
         'PSPossibleIncorrectUsageOfRedirectionOperator',
-        'PSUseCompatibleSyntax',
+        # PSUseCompatibleSyntax excluded: repo targets pwsh 7 only (CLAUDE.md).
+        # No need to check PS 3/4/5/6 compatibility.
         'PSUseDeclaredVarsMoreThanAssignments',
         'PSUseSingularNouns'
     )
-
-    Rules = @{
-        PSUseCompatibleSyntax = @{
-            Enable        = $true
-            TargetedVersions = @('7.0', '7.2')
-        }
-    }
 }
