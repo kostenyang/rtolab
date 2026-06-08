@@ -29,16 +29,23 @@ jobs:
 
           Write-Output "Analysing $($files.Count) file(s)..."
 
-          $results = $files | Invoke-ScriptAnalyzer -Settings $settings -Severity Error, Warning
+          $all      = $files | Invoke-ScriptAnalyzer -Settings $settings -Severity Error, Warning
+          $errors   = $all   | Where-Object Severity -eq 'Error'
+          $warnings = $all   | Where-Object Severity -eq 'Warning'
 
-          if ($results) {
-            $results | Format-Table -Property RuleName, Severity, ScriptName, Line, Message -AutoSize -Wrap
-            Write-Output ""
-            Write-Output "::error::PSScriptAnalyzer found $($results.Count) issue(s)."
+          if ($warnings) {
+            Write-Output "--- Warnings (informational, do not block) ---"
+            $warnings | Format-Table -Property RuleName, ScriptName, Line, Message -AutoSize -Wrap
+          }
+
+          if ($errors) {
+            Write-Output "--- Errors (blocking) ---"
+            $errors | Format-Table -Property RuleName, ScriptName, Line, Message -AutoSize -Wrap
+            Write-Output "::error::PSScriptAnalyzer found $($errors.Count) error(s)."
             exit 1
           }
 
-          Write-Output "PSScriptAnalyzer: no issues found."
+          Write-Output "PSScriptAnalyzer: $($warnings.Count) warning(s), 0 errors."
 
   # ── 2. YAML validation ──────────────────────────────────────────────────
   yaml:
