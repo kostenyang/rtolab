@@ -57,9 +57,15 @@ if (-not $EsxiPassword) {
 # ── Layer 2: bringup spec generation ─────────────────────────────────────────
 Write-Section "Layer 2 — Generate-BringupSpec validation (VCF 9.1)"
 
-$specScript = Join-Path $RepoRoot "layer2-bringup\vcf91\Generate-BringupSpec.ps1"
+$specScript  = Join-Path $RepoRoot "layer2-bringup\vcf91\Generate-BringupSpec.ps1"
+$secretsFile = Join-Path $RepoRoot "inventory\secrets\lab.yaml"
+$ageKeyFile  = Join-Path $env:USERPROFILE ".config\sops\age\keys.txt"
 
-if (-not (Test-Path $specScript)) {
+if (-not (Test-Path $secretsFile)) {
+    Write-Output "::warning::inventory/secrets/lab.yaml not found — skipping Layer 2 (run locally where sops secrets exist)."
+} elseif (-not (Test-Path $ageKeyFile)) {
+    Write-Output "::warning::sops age key not found at $ageKeyFile — skipping Layer 2 spec generation."
+} elseif (-not (Test-Path $specScript)) {
     Write-Fail "Spec script not found: $specScript"
 } else {
     try {
