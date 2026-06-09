@@ -1,0 +1,36 @@
+name: Dry Run
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'layer1-nested/**'
+      - 'layer2-bringup/**'
+      - 'inventory/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Layer 1 + Layer 2 dry-run
+    runs-on: [self-hosted, Windows, pwsh, lab]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run dry-run checks
+        env:
+          ESXI_ROOT_PW: ${{ secrets.ESXI_ROOT_PW }}
+        run: |
+          pwsh -File "$env:GITHUB_WORKSPACE\.github\scripts\Invoke-DryRun.ps1"
+
+      - name: Upload spec artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bringup-specs-${{ github.run_id }}
+          path: ${{ runner.temp }}\dryrun-specs\*.json
+          if-no-files-found: ignore
+          retention-days: 7
