@@ -1,0 +1,63 @@
+name: AI Code Review
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+# Currently: manual only (ANTHROPIC_API_KEY not yet configured).
+#
+# When key is ready:
+#   1. gh secret set ANTHROPIC_API_KEY --repo kostenyang/rtolab
+#   2. Uncomment the pull_request block below and remove/keep workflow_dispatch.
+#
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened]
+#   workflow_dispatch:
+#     inputs:
+#       pr_number:
+#         description: 'PR number to review'
+#         required: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review (e.g. 5)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Claude Review
+    runs-on: [self-hosted, Windows, pwsh, lab]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check ANTHROPIC_API_KEY is set
+        env:
+          KEY_SET: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          if ($env:KEY_SET -ne 'true') {
+            Write-Output "::error::ANTHROPIC_API_KEY secret is not set."
+            Write-Output "Run: gh secret set ANTHROPIC_API_KEY --repo ${{ github.repository }}"
+            exit 1
+          }
+          Write-Output "API key present."
+
+      - name: Run Claude review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $pr = "${{ inputs.pr_number }}"
+          # When switching to pull_request trigger, replace the line above with:
+          # $pr = "${{ github.event.pull_request.number }}"
+
+          pwsh -File "$env:GITHUB_WORKSPACE\.github\scripts\Invoke-ClaudeReview.ps1" `
+            -PrNumber $pr `
+            -Repo     "${{ github.repository }}"
