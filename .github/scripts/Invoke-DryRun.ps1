@@ -5,8 +5,9 @@
     Exits 0 only if both pass.
 #>
 param(
-    [string] $EsxiPassword = $env:ESXI_ROOT_PW,
-    [string] $RepoRoot     = $env:GITHUB_WORKSPACE
+    [string] $EsxiPassword    = $env:ESXI_ROOT_PW,
+    [string] $EsxiPasswordPso = $env:ESXI_ROOT_PW_PSO,
+    [string] $RepoRoot        = $env:GITHUB_WORKSPACE
 )
 
 # Note: Set-StrictMode intentionally NOT set here — it propagates to child
@@ -32,23 +33,57 @@ function Write-Fail ([string]$msg) {
 # ── Layer 1: vSAN/LSOM dry-run ───────────────────────────────────────────────
 Write-Section "Layer 1 — Prepare-NestedESXi dry-run"
 
-if (-not $EsxiPassword) {
-    Write-Output "::warning::ESXI_ROOT_PW not set — skipping Layer 1 dry-run."
+$defaultHosts = @('192.168.114.14','192.168.114.15','192.168.114.16','192.168.114.17')
+
+if (-not $EsxiPassword -and -not $EsxiPasswordPso) {
+    Write-Output "::warning::Neither ESXI_ROOT_PW nor ESXI_ROOT_PW_PSO is set — skipping Layer 1 dry-run."
 } else {
     try {
         Import-Module VMware.VimAutomation.Core -DisableNameChecking -ErrorAction Stop
         Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -ParticipateInCEIP $false `
             -DefaultVIServerMode Single -Confirm:$false -Scope Session | Out-Null
 
-        $secPw          = ConvertTo-SecureString $EsxiPassword -AsPlainText -Force
-        $global:LAB_CRED = [PSCredential]::new('root', $secPw)
+        # Build ordered credential map for whichever secrets are present
+        $creds = [ordered]@{}
+        if ($EsxiPassword)    { $creds['primary'] = [PSCredential]::new('root', (ConvertTo-SecureString $EsxiPassword    -AsPlainText -Force)) }
+        if ($EsxiPasswordPso) { $creds['pso']     = [PSCredential]::new('root', (ConvertTo-SecureString $EsxiPasswordPso -AsPlainText -Force)) }
 
-        $script = Join-Path $RepoRoot "layer1-nested\Prepare-NestedESXi-auto.ps1"
-        Write-Output "Running: $script -DryRun"
+        # Probe each host — assign to first credential that connects successfully
+        $groups = @{}
+        foreach ($h in $defaultHosts) {
+            $matched = $false
+            foreach ($credKey in $creds.Keys) {
+                try {
+                    $vi = Connect-VIServer -Server $h -Credential $creds[$credKey] -Force -ErrorAction Stop
+                    Disconnect-VIServer -Server $vi -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+                    if (-not $groups[$credKey]) { $groups[$credKey] = [System.Collections.Generic.List[string]]::new() }
+                    $groups[$credKey].Add($h)
+                    Write-Output "  $h  ->  $credKey"
+                    $matched = $true
+                    break
+                } catch {
+                    # try next credential
+                }
+            }
+            if (-not $matched) {
+                Write-Fail "Could not connect to $h with any credential."
+            }
+        }
 
-        & $script -DryRun
-        Write-Output ""
-        Write-Output "Layer 1 dry-run: PASS"
+        # Run dry-run once per credential group
+        $l1script = Join-Path $RepoRoot "layer1-nested\Prepare-NestedESXi-auto.ps1"
+        foreach ($credKey in $groups.Keys) {
+            $hostList = $groups[$credKey].ToArray()
+            Write-Output ""
+            Write-Output "Running dry-run [$credKey] on: $($hostList -join ', ')"
+            $global:LAB_CRED = $creds[$credKey]
+            & $l1script -Hosts $hostList -DryRun
+        }
+
+        if (-not $script:failed) {
+            Write-Output ""
+            Write-Output "Layer 1 dry-run: PASS"
+        }
     } catch {
         Write-Fail "Layer 1 dry-run failed: $_"
     }
